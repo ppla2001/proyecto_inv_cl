@@ -27,10 +27,10 @@ Dashboard personal de finanzas e inversiones. PWA para iPhone, uso individual (P
 
 ## Plan
 
-Ver `PLAN.md` — etapas E1 a E12, cada una con criterio verificable. Estado actual: **E1 completada** (esqueleto).
+Ver `PLAN.md` — etapas E1 a E12, cada una con criterio verificable. Estado actual: **E2 completada** (datos de referencia: MEP e inflación).
 
 ## Convenciones
 
 - Código y comentarios en inglés; UI y docs en español.
-- Commits chicos y descriptivos en español. Pedro hace el push manual.
+- Commits chicos y descriptivos en español.
 - Tests para lógica pura (conversión de moneda, parsers OCR, conciliador).

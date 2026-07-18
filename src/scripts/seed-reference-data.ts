@@ -1,11 +1,19 @@
 import { db } from "@/db";
 import { exchangeRates, inflationIndex } from "@/db/schema";
 
-const MEP_DESDE = "2025-01-01";
+const COTIZACIONES_DESDE = "2025-01-01";
 const FUENTE = "argentinadatos";
 
+// casa (ArgentinaDatos) -> tipo (nuestra tabla)
+const CASAS: { casa: string; tipo: string }[] = [
+  { casa: "bolsa", tipo: "mep" },
+  { casa: "blue", tipo: "blue" },
+  { casa: "oficial", tipo: "oficial" },
+  { casa: "cripto", tipo: "cripto" },
+];
+
 type InflacionApi = { fecha: string; valor: number };
-type MepApi = { casa: string; compra: number; venta: number; fecha: string };
+type CotizacionApi = { casa: string; compra: number; venta: number; fecha: string };
 
 async function seedInflacion() {
   const res = await fetch(
@@ -28,30 +36,34 @@ async function seedInflacion() {
   console.log(`Inflación: ${data.length} meses cargados/actualizados.`);
 }
 
-async function seedMep() {
+async function seedCotizacion(casa: string, tipo: string) {
   const res = await fetch(
-    "https://api.argentinadatos.com/v1/cotizaciones/dolares/bolsa"
+    `https://api.argentinadatos.com/v1/cotizaciones/dolares/${casa}`
   );
-  if (!res.ok) throw new Error(`MEP: HTTP ${res.status}`);
-  const data: MepApi[] = await res.json();
-  const desde2025 = data.filter((d) => d.fecha >= MEP_DESDE);
+  if (!res.ok) throw new Error(`${tipo}: HTTP ${res.status}`);
+  const data: CotizacionApi[] = await res.json();
+  const desde = data.filter((d) => d.fecha >= COTIZACIONES_DESDE);
 
-  for (const { fecha, compra, venta } of desde2025) {
+  for (const { fecha, compra, venta } of desde) {
     await db
       .insert(exchangeRates)
-      .values({ fecha, tipo: "mep", compra, venta, fuente: FUENTE })
+      .values({ fecha, tipo, compra, venta, fuente: FUENTE })
       .onConflictDoUpdate({
-        target: exchangeRates.fecha,
+        target: [exchangeRates.fecha, exchangeRates.tipo],
         set: { compra, venta, fuente: FUENTE },
       });
   }
 
-  console.log(`MEP: ${desde2025.length} días cargados/actualizados (desde ${MEP_DESDE}).`);
+  console.log(
+    `${tipo}: ${desde.length} días cargados/actualizados (desde ${COTIZACIONES_DESDE}).`
+  );
 }
 
 async function main() {
   await seedInflacion();
-  await seedMep();
+  for (const { casa, tipo } of CASAS) {
+    await seedCotizacion(casa, tipo);
+  }
 }
 
 main()

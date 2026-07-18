@@ -1,4 +1,4 @@
-import { and, desc, gte, lte } from "drizzle-orm";
+import { and, desc, eq, gte, lte } from "drizzle-orm";
 import { db } from "@/db";
 import { exchangeRates } from "@/db/schema";
 
@@ -35,6 +35,7 @@ export async function getMepRateForDate(
       .from(exchangeRates)
       .where(
         and(
+          eq(exchangeRates.tipo, "mep"),
           lte(exchangeRates.fecha, fecha),
           gte(exchangeRates.fecha, restarDias(fecha, FALLBACK_VENTANA_DIAS))
         )

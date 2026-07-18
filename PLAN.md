@@ -1,12 +1,12 @@
 # Plan por etapas — Dashboard de Finanzas Personales
 
-> PWA de costo cero para iPhone. Consolida Balanz, Criteria, Lemon, MetaMask, Binance y Mercado Pago.
+> PWA de costo cero para iPhone. Consolida Mercado Pago, Binance, MetaMask y Balanz.
 > Responde tres preguntas: ¿a dónde va la plata?, ¿cómo rinden las inversiones vs. benchmarks?, ¿qué mirar del mercado?
 > **Restricción dura: costo cero absoluto.** Sin APIs pagas de ningún tipo (incluida inferencia de IA).
 
 **Stack:** Python + FastAPI (una sola app: API + PWA) · SQLAlchemy sobre SQLite (local) → Neon Postgres (deploy) · OCR local con Tesseract · ArgentinaDatos para MEP e inflación · Binance API pública · MetaMask on-chain.
 
-**Modo de trabajo:** desarrollo local-first en este repo, todo con Claude en Cowork. Deploy a Vercel/Neon recién en la Etapa 9. Commits locales acá; push manual de Pedro.
+**Modo de trabajo:** desarrollo local-first en este repo, todo con Claude en Cowork. El deploy es la última etapa, después de iterar el dashboard en local. Commits locales acá; push manual de Pedro.
 
 ---
 
@@ -18,7 +18,7 @@
 | Dólar MEP (bolsa) | `/v1/cotizaciones/dolares/bolsa` | ✅ Diario desde **2018-10-29** hasta ayer |
 | MEP por fecha | `/v1/cotizaciones/dolares/bolsa/{yyyy}/{mm}/{dd}` | ✅ Probado 2026-07-17: venta 1521.9 |
 
-**Caveat:** no hay MEP anterior a oct-2018 (fechas previas devuelven vacío). Fallback para transacciones viejas: blue/oficial de la misma API o carga manual del TC.
+**Decisión:** se almacena localmente solo MEP **desde 2025-01-01** (serie liviana, ~550 filas). Transacciones anteriores a 2025 se resuelven puntualmente con el endpoint por fecha, sin almacenar toda la serie. No existe MEP anterior a oct-2018; para eso, fallback blue/oficial o TC manual.
 
 ---
 
@@ -31,8 +31,8 @@ Estructura de carpetas, `pyproject.toml`, FastAPI "hola mundo", `CLAUDE.md` con 
 **Verificable:** `uvicorn` levanta y responde en localhost.
 
 ### E2 — Datos de referencia
-Tablas `exchange_rates` e `inflation_index` (SQLAlchemy + migraciones Alembic). Script que descarga la serie completa de ArgentinaDatos y la carga. Comando de actualización incremental (para correr a mano o con cron local).
-**Verificable:** la base tiene MEP diario 2018→hoy e inflación mensual.
+Tablas `exchange_rates` e `inflation_index` (SQLAlchemy + migraciones Alembic). Script que descarga MEP desde 2025-01-01 e inflación desde ArgentinaDatos y los carga. Comando de actualización incremental (para correr a mano o con cron local). Lookup puntual por fecha para transacciones pre-2025.
+**Verificable:** la base tiene MEP diario 2025→hoy e inflación mensual.
 
 ### E3 — Conversión histórica
 Helper `ars_to_usd(monto, fecha)` y `ajustar_inflacion(monto, desde, hasta)`. Manejo de días sin cotización (último hábil anterior). Tests.
@@ -50,25 +50,25 @@ Aparea egresos/ingresos entre cuentas propias (monto ± tolerancia, ventana temp
 Pantalla web local: alta manual de transacciones, edición, confirmación de conciliaciones sugeridas. Fea pero funcional; es la red de seguridad de todo lo que viene.
 **Verificable:** flujo completo carga → conciliación → confirmación desde el browser.
 
-### E7 — OCR: primera plantilla
-Pipeline Tesseract: screenshot → OCR → parser → transacciones candidatas → pantalla de revisión (nada entra sin validar). Una sola plataforma para empezar (la de layout más simple, probablemente Mercado Pago o Lemon). Parsers como funciones puras con fixtures de screenshots reales + tests.
+### E7 — OCR: Mercado Pago
+Pipeline Tesseract: screenshot → OCR → parser → transacciones candidatas → pantalla de revisión (nada entra sin validar). Parsers como funciones puras con fixtures de screenshots reales + tests.
 **Verificable:** un screenshot real genera transacciones correctas con ≤1 corrección típica.
 
-### E8 — OCR: resto de plantillas
-Balanz, Criteria y la que faltó de E7. Una plantilla por sesión si hace falta.
-**Verificable:** ídem E7 por plataforma.
+### E8 — OCR: Balanz
+Segunda plantilla, reutilizando la interfaz de parser de E7.
+**Verificable:** ídem E7.
 
 ### E9 — Cripto por API
 Binance (API pública: precios históricos + valuación de holdings) y MetaMask (balances on-chain).
 **Verificable:** holdings cripto valuados en USD y ARS a fecha de hoy.
 
-### E10 — Deploy
-Migrar SQLite → Neon (cambio de connection string + migraciones). Deploy FastAPI en Vercel. Cron de actualización de cotizaciones (Vercel Cron). PWA instalable (manifest + service worker).
-**Verificable:** la app abre desde el iPhone con datos reales.
+### E10 — Dashboard (local)
+Módulo gastos (flujo mensual, por categoría, toggle ARS⇄USD histórico) y módulo inversiones (curva de patrimonio, rendimiento por plataforma, benchmark vs. SPY e inflación). Se itera en local, en el browser de la Mac, todas las veces que haga falta.
+**Verificable:** uso real durante 1–2 semanas en local antes de deployar.
 
-### E11 — Dashboard
-Módulo gastos (flujo mensual, por categoría, toggle ARS⇄USD histórico) y módulo inversiones (curva de patrimonio, rendimiento por plataforma, benchmark vs. SPY e inflación).
-**Verificable:** uso voluntario diario/semanal durante 2+ semanas — la métrica de éxito real.
+### E11 — Deploy (al final de todo)
+Migrar SQLite → Neon (cambio de connection string + migraciones). Deploy FastAPI en Vercel (o el hosting gratuito que mejor sirva llegado el momento). Cron de actualización de cotizaciones. PWA instalable (manifest + service worker).
+**Verificable:** la app abre desde el iPhone con datos reales.
 
 ### E12 (diferida) — Módulo mercado
 Watchlist y top movers vía CoinGecko/Binance. Lo último a propósito: es lo menos diferenciado.
@@ -77,7 +77,7 @@ Watchlist y top movers vía CoinGecko/Binance. Lo último a propósito: es lo me
 
 ## Riesgos y mitigaciones
 
-- **MEP pre-2018 inexistente** → fallback blue/oficial o TC manual.
+- **Transacciones pre-2025** → lookup puntual por fecha en ArgentinaDatos; pre-2018 no hay MEP → fallback blue/oficial o TC manual.
 - **ArgentinaDatos se cae/discontinúa** → las tablas locales son la fuente de verdad; la API solo alimenta la actualización. Backup del dump.
 - **OCR frágil ante rediseños de apps** → parsers versionados por plantilla + pantalla de revisión siempre presente.
 - **Scope creep** → E12 no se toca hasta que E11 tenga uso habitual real.

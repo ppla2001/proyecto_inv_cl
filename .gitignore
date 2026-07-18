@@ -9,6 +9,8 @@ next-env.d.ts
 # database local
 *.db
 *.db-journal
+*.db-shm
+*.db-wal
 *.sqlite
 
 # env

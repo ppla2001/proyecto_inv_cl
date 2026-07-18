@@ -4,7 +4,7 @@
 > Responde tres preguntas: ¿a dónde va la plata?, ¿cómo rinden las inversiones vs. benchmarks?, ¿qué mirar del mercado?
 > **Restricción dura: costo cero absoluto.** Sin APIs pagas de ningún tipo (incluida inferencia de IA).
 
-**Stack:** Python + FastAPI (una sola app: API + PWA) · SQLAlchemy sobre SQLite (local) → Neon Postgres (deploy) · OCR local con Tesseract · ArgentinaDatos para MEP e inflación · Binance API pública · MetaMask on-chain.
+**Stack:** Node + Next.js (una sola app: API routes + PWA React) · Drizzle ORM sobre SQLite (local) → Neon Postgres (deploy) · OCR local con tesseract.js · ArgentinaDatos para MEP e inflación · Binance API pública · MetaMask on-chain.
 
 **Modo de trabajo:** desarrollo local-first en este repo, todo con Claude en Cowork. El deploy es la última etapa, después de iterar el dashboard en local. Commits locales acá; push manual de Pedro.
 
@@ -27,11 +27,11 @@
 Cada etapa es completable en una sesión y termina con algo verificable.
 
 ### E1 — Esqueleto del repo
-Estructura de carpetas, `pyproject.toml`, FastAPI "hola mundo", `CLAUDE.md` con contexto del proyecto, `.gitignore`, README.
-**Verificable:** `uvicorn` levanta y responde en localhost.
+Next.js (TypeScript) con estructura de carpetas, `CLAUDE.md` con contexto del proyecto, `.gitignore`, README.
+**Verificable:** `npm run dev` levanta y responde en localhost.
 
 ### E2 — Datos de referencia
-Tablas `exchange_rates` e `inflation_index` (SQLAlchemy + migraciones Alembic). Script que descarga MEP desde 2025-01-01 e inflación desde ArgentinaDatos y los carga. Comando de actualización incremental (para correr a mano o con cron local). Lookup puntual por fecha para transacciones pre-2025.
+Tablas `exchange_rates` e `inflation_index` (Drizzle + migraciones drizzle-kit). Script que descarga MEP desde 2025-01-01 e inflación desde ArgentinaDatos y los carga. Comando de actualización incremental (para correr a mano o con cron local). Lookup puntual por fecha para transacciones pre-2025.
 **Verificable:** la base tiene MEP diario 2025→hoy e inflación mensual.
 
 ### E3 — Conversión histórica
@@ -51,7 +51,7 @@ Pantalla web local: alta manual de transacciones, edición, confirmación de con
 **Verificable:** flujo completo carga → conciliación → confirmación desde el browser.
 
 ### E7 — OCR: Mercado Pago
-Pipeline Tesseract: screenshot → OCR → parser → transacciones candidatas → pantalla de revisión (nada entra sin validar). Parsers como funciones puras con fixtures de screenshots reales + tests.
+Pipeline tesseract.js: screenshot → OCR → parser → transacciones candidatas → pantalla de revisión (nada entra sin validar). Parsers como funciones puras con fixtures de screenshots reales + tests.
 **Verificable:** un screenshot real genera transacciones correctas con ≤1 corrección típica.
 
 ### E8 — OCR: Balanz
@@ -67,7 +67,7 @@ Módulo gastos (flujo mensual, por categoría, toggle ARS⇄USD histórico) y m�
 **Verificable:** uso real durante 1–2 semanas en local antes de deployar.
 
 ### E11 — Deploy (al final de todo)
-Migrar SQLite → Neon (cambio de connection string + migraciones). Deploy FastAPI en Vercel (o el hosting gratuito que mejor sirva llegado el momento). Cron de actualización de cotizaciones. PWA instalable (manifest + service worker).
+Migrar SQLite → Neon (cambio de driver/connection string + migraciones). Deploy Next.js en Vercel (primera clase, cero config). Cron de actualización de cotizaciones (Vercel Cron). PWA instalable (manifest + service worker).
 **Verificable:** la app abre desde el iPhone con datos reales.
 
 ### E12 (diferida) — Módulo mercado
@@ -81,7 +81,7 @@ Watchlist y top movers vía CoinGecko/Binance. Lo último a propósito: es lo me
 - **ArgentinaDatos se cae/discontinúa** → las tablas locales son la fuente de verdad; la API solo alimenta la actualización. Backup del dump.
 - **OCR frágil ante rediseños de apps** → parsers versionados por plantilla + pantalla de revisión siempre presente.
 - **Scope creep** → E12 no se toca hasta que E11 tenga uso habitual real.
-- **SQLite→Postgres** → SQLAlchemy desde el día 1 y sin SQL crudo específico de SQLite.
+- **SQLite→Postgres** → Drizzle desde el día 1 y sin SQL crudo específico de SQLite.
 
 ## Próximo paso
 

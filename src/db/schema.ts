@@ -32,3 +32,11 @@ export const accounts = sqliteTable("accounts", {
   identificadorExterno: text("identificador_externo"), // no sensible, ej. address de wallet
   activa: integer("activa", { mode: "boolean" }).notNull().default(true),
 });
+
+// Categorías de transacciones, separadas por tipo para no mezclar
+// categorías de gasto con las de ingreso.
+export const categories = sqliteTable("categories", {
+  id: integer("id").primaryKey({ autoIncrement: true }),
+  nombre: text("nombre").notNull(),
+  tipo: text("tipo").notNull(), // "gasto" | "ingreso"
+});

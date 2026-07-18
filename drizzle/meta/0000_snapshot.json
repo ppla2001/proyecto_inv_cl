@@ -1,16 +1,76 @@
 {
   "version": "6",
   "dialect": "sqlite",
-  "id": "5f04cf78-2b25-4e6e-b35d-6ff12fe94a5d",
+  "id": "9bc657f1-d1d3-415e-b935-4593273579d3",
   "prevId": "00000000-0000-0000-0000-000000000000",
   "tables": {
+    "accounts": {
+      "name": "accounts",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "integer",
+          "primaryKey": true,
+          "notNull": true,
+          "autoincrement": true
+        },
+        "nombre": {
+          "name": "nombre",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "plataforma": {
+          "name": "plataforma",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "moneda_default": {
+          "name": "moneda_default",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "origen": {
+          "name": "origen",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "identificador_externo": {
+          "name": "identificador_externo",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "activa": {
+          "name": "activa",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false,
+          "default": true
+        }
+      },
+      "indexes": {},
+      "foreignKeys": {},
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {},
+      "checkConstraints": {}
+    },
     "exchange_rates": {
       "name": "exchange_rates",
       "columns": {
         "fecha": {
           "name": "fecha",
           "type": "text",
-          "primaryKey": true,
+          "primaryKey": false,
           "notNull": true,
           "autoincrement": false
         },
@@ -45,7 +105,15 @@
       },
       "indexes": {},
       "foreignKeys": {},
-      "compositePrimaryKeys": {},
+      "compositePrimaryKeys": {
+        "exchange_rates_fecha_tipo_pk": {
+          "columns": [
+            "fecha",
+            "tipo"
+          ],
+          "name": "exchange_rates_fecha_tipo_pk"
+        }
+      },
       "uniqueConstraints": {},
       "checkConstraints": {}
     },

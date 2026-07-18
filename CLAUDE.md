@@ -12,10 +12,13 @@ Dashboard personal de finanzas e inversiones. PWA para iPhone, uso individual (P
 
 - **Next.js + TypeScript** (App Router, `src/app/`): una sola app con API routes + frontend React (PWA).
 - **Drizzle ORM** sobre **SQLite** en local → **Neon Postgres** al deployar. No usar SQL crudo específico de SQLite.
-- **tesseract.js** para OCR local de screenshots (es el pipeline principal de ingesta para Mercado Pago y Balanz, no un workaround).
-- **ArgentinaDatos** (`api.argentinadatos.com`, MIT): dólar MEP (`/v1/cotizaciones/dolares/bolsa`, diario desde 2018-10-29) e inflación (`/v1/finanzas/indices/inflacion`, mensual desde 1943). Se almacena MEP desde 2025-01-01; fechas anteriores se resuelven con el endpoint por fecha `/bolsa/{yyyy}/{mm}/{dd}`.
-- **Binance API pública** (sin auth) para precios cripto; **MetaMask** vía consultas on-chain.
-- Deploy final: **Vercel + Neon** (E11, al final de todo, después de iterar en local).
+- **Ingesta: preferir API oficial sobre OCR siempre que sea gratis.** OCR con tesseract.js queda para lo que no tiene API (Balanz) y como fallback si una integración por API no alcanza (a confirmar con Mercado Pago, ver `PLAN.md` E5).
+- **ArgentinaDatos** (`api.argentinadatos.com`, MIT): dólar MEP/blue/oficial/cripto (`/v1/cotizaciones/dolares/{casa}`) e inflación (`/v1/finanzas/indices/inflacion`, mensual desde 1943). Se almacena MEP desde 2025-01-01; fechas anteriores se resuelven con el endpoint por fecha `/bolsa/{yyyy}/{mm}/{dd}`.
+- **Binance**: API pública para precios + API key de solo lectura (gratis) para balances/historial propio.
+- **MetaMask**: on-chain vía Etherscan API (free tier) para balance actual e historial de tx. El balance histórico en fecha pasada es función paga de Etherscan — se reconstruye con `balance_snapshots` propios en vez de pagarlo.
+- **Mercado Pago**: API oficial (`POST /v1/account/settlement_report`, OAuth de la cuenta personal) — cobertura sin confirmar todavía, ver `PLAN.md` E5.
+- **Credenciales de API** (Binance, MP, Etherscan) siempre en `.env.local`, nunca en la base de datos ni en el repo.
+- Deploy final: **Vercel + Neon** (E12, al final de todo, después de iterar en local).
 
 ## Principios de diseño
 
@@ -27,7 +30,7 @@ Dashboard personal de finanzas e inversiones. PWA para iPhone, uso individual (P
 
 ## Plan
 
-Ver `PLAN.md` — etapas E1 a E12, cada una con criterio verificable. Estado actual: **E2 completada** (datos de referencia: MEP e inflación).
+Ver `PLAN.md` — etapas E1 a E13, cada una con criterio verificable. Estado actual: **E1-E3 completadas**, **E4 en curso** (modelo core, por slices).
 
 ## Convenciones
 

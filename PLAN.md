@@ -60,10 +60,19 @@ Helper `ars_to_usd(monto, fecha)` y `ajustar_inflacion(monto, desde, hasta)` en 
 ### E4 — Modelo core (en curso)
 Implementación **escalonada por slices verticales** (schema + API + UI mínima por tabla, no todo de una vez), para poder ir probando manualmente en el browser en vez de solo con `curl`.
 
-- **Slice 1 — `accounts`**: id, nombre, plataforma (`mercado_pago` / `binance` / `metamask` / `balanz`), moneda_default, origen (`manual` / `api_binance` / `api_mercadopago` / `onchain_metamask`), identificador_externo (no sensible, ej. address de wallet), activa. + endpoints GET/POST + pantalla simple de alta/listado. Se aprovecha para sumar blue/oficial/cripto al seed de `exchange_rates`.
-- **Slice 2 — `categories`**: id, nombre, tipo (gasto/ingreso). + GET/POST + UI.
-- **Slice 3 — `transactions`**: id, fecha, monto, moneda, cuenta_id (FK), categoria_id (FK nullable), tipo (`gasto_real` / `ingreso_real` / `transferencia_interna`), descripción, cuenta_destino_id (FK nullable, solo transferencias). + GET (con filtros)/POST/PATCH/DELETE + UI de alta/edición/listado. Validación de payloads con `zod`.
-- **Slice 4 — `balance_snapshots`**: id, cuenta_id (FK), fecha, saldo, moneda — log de eventos, no cron diario; se llena en cada carga manual, OCR (E10) o consulta on-chain (E7). + GET/POST + UI simple.
+**Modelo de patrimonio e inversiones (definido 18-07-2026):** dos preguntas, dos mecanismos separados que no se pisan:
+- *"¿A dónde va la plata?"* → `transactions`: movimiento de plata entre cuentas propias o hacia/desde el mundo exterior. Un swap dentro de una misma cuenta (ej. ARS→BTC dentro de Binance) **no** genera una fila acá — queda capturado solo por el delta entre `holdings_snapshots`.
+- *"¿Cómo rinden las inversiones?"* → `holdings_snapshots` (valor actual en el tiempo) + `holdings_movements` (compras/ventas, para costo base). Rendimiento = valor actual − costo base.
+
+Dos reglas de clasificación que resuelven casos ambiguos sin agregar tipos nuevos a `transactions`:
+- **Transferencia a un tercero** (no una cuenta propia) = `gasto_real`, no `transferencia_interna`. Afecta el patrimonio neto, a diferencia de mover plata entre tus propias cuentas.
+- **Tarjeta de crédito** = una `account` más, con `tipoCuenta="pasivo"` y saldo negativo. Comprar con la tarjeta = `gasto_real` sobre esa cuenta (el PN baja en el momento de la compra, no cuando se paga el resumen). Pagar el resumen = `transferencia_interna` desde la cuenta que paga hacia la tarjeta (el PN no se mueve dos veces).
+
+- **Slice 1 — `accounts`** ✅: id, nombre, plataforma (`mercado_pago` / `binance` / `metamask` / `balanz`), tipo_cuenta (`activo` / `pasivo`, default `activo`), moneda_default, origen (`manual` / `api_binance` / `api_mercadopago` / `onchain_metamask`), identificador_externo (no sensible, ej. address de wallet), activa. + endpoints GET/POST + pantalla simple de alta/listado.
+- **Slice 2 — `categories`** ✅: id, nombre, tipo (gasto/ingreso). + GET/POST + UI.
+- **Slice 3 — `transactions`**: id, fecha, monto, moneda, cuenta_id (FK), categoria_id (FK nullable — null en transferencias), tipo (`gasto_real` / `ingreso_real` / `transferencia_interna`), descripción, cuenta_destino_id (FK nullable, solo transferencias). + GET (con filtros)/POST/PATCH/DELETE + UI de alta/edición/listado. Validación de payloads con `zod`.
+- **Slice 4 — `holdings_snapshots`**: id, cuenta_id (FK), fecha, activo (`ARS`/`USD`/`BTC`/ticker...), cantidad, valor_usd (normalizado al momento, no depende de re-consultar precios históricos después), fuente — log de eventos, no cron diario; se llena en cada carga manual, OCR (E10) o consulta on-chain/API (E5-E7). + GET/POST + UI simple.
+- **Slice 5 — `holdings_movements`**: id, cuenta_id (FK), fecha, activo, tipo (`compra`/`venta`), cantidad, precio_unitario, moneda, valor_usd (normalizado), fuente. + GET/POST + UI simple.
 
 **Verificable por slice:** alta/edición/listado real desde el browser, no solo `curl`.
 
@@ -74,11 +83,11 @@ Primer paso: **validar la duda de cobertura** (ver tabla de arriba) con una prue
 **Verificable:** un rango de fechas real importado y clasificado correctamente, con veredicto documentado sobre la cobertura de la API.
 
 ### E6 — Integración Binance (API)
-API key de solo lectura (`.env.local`). Trae balances actuales, historial de operaciones, depósitos y retiros. Mapea a `transactions` (compra/venta = no es gasto/ingreso real si es solo movimiento entre USD y cripto dentro de la plataforma — a definir junto con el conciliador) y alimenta `balance_snapshots`.
+API key de solo lectura (`.env.local`). Trae balances actuales, historial de operaciones, depósitos y retiros. Depósitos/retiros que cruzan hacia otra cuenta propia alimentan `transactions`; compras/ventas de cripto dentro de la plataforma alimentan `holdings_movements`; balances actuales alimentan `holdings_snapshots`.
 **Verificable:** holdings y movimientos reales de Binance reflejados en la base.
 
 ### E7 — Integración MetaMask (on-chain)
-Etherscan API (o RPC público) con la dirección pública de la wallet. Balance actual + historial de transacciones on-chain. Curva histórica se reconstruye con snapshots propios desde que arranca el tracking (no se paga el histórico de Etherscan PRO).
+Etherscan API (o RPC público) con la dirección pública de la wallet. Balance actual + historial de transacciones on-chain. Curva histórica se reconstruye con `holdings_snapshots` propios desde que arranca el tracking (no se paga el histórico de Etherscan PRO).
 **Verificable:** holdings de MetaMask valuados en USD/ARS a fecha de hoy, snapshot guardado.
 
 ### E8 — Conciliador de transferencias
@@ -109,7 +118,7 @@ Watchlist y top movers vía CoinGecko (preferido sobre CoinMarketCap por mejor f
 ## Riesgos y mitigaciones
 
 - **Mercado Pago API insuficiente** → validado como primer paso de E5, con fallback documentado a OCR (E10) si hace falta.
-- **Etherscan free tier sin balance histórico** → se reconstruye localmente con `balance_snapshots` propios en vez de pedirlo pago.
+- **Etherscan free tier sin balance histórico** → se reconstruye localmente con `holdings_snapshots` propios en vez de pedirlo pago.
 - **Transacciones pre-2025** → lookup puntual por fecha en ArgentinaDatos; pre-2018 no hay MEP → fallback blue/oficial o TC manual.
 - **ArgentinaDatos se cae/discontinúa** → las tablas locales son la fuente de verdad; la API solo alimenta la actualización. Backup del dump.
 - **OCR frágil ante rediseños de apps** → parsers versionados por plantilla + pantalla de revisión siempre presente.
@@ -119,4 +128,4 @@ Watchlist y top movers vía CoinGecko (preferido sobre CoinMarketCap por mejor f
 
 ## Próximo paso
 
-E4 — slice 1: tabla `accounts` + endpoints + UI mínima, sumando blue/oficial/cripto al seed de E2.
+E4 — slice 3: tabla `transactions` + endpoints + UI mínima (slices 1 y 2 ya completados).

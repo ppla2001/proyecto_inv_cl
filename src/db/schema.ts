@@ -21,12 +21,14 @@ export const inflationIndex = sqliteTable("inflation_index", {
   fuente: text("fuente").notNull(), // "argentinadatos"
 });
 
-// Cuentas propias (plataformas + wallets). No hay flag "es mía": todo lo que
-// entra acá es de Pedro por definición.
+// Cuentas propias (plataformas + wallets) y pasivos (ej. tarjetas de
+// crédito). No hay flag "es mía": todo lo que entra acá es de Pedro por
+// definición.
 export const accounts = sqliteTable("accounts", {
   id: integer("id").primaryKey({ autoIncrement: true }),
   nombre: text("nombre").notNull(),
   plataforma: text("plataforma").notNull(), // "mercado_pago" | "binance" | "metamask" | "balanz"
+  tipoCuenta: text("tipo_cuenta").notNull().default("activo"), // "activo" | "pasivo" (ej. tarjeta de crédito)
   monedaDefault: text("moneda_default").notNull(), // "ARS" | "USD" | "ETH" | etc.
   origen: text("origen").notNull(), // "manual" | "api_binance" | "api_mercadopago" | "onchain_metamask"
   identificadorExterno: text("identificador_externo"), // no sensible, ej. address de wallet
@@ -39,4 +41,50 @@ export const categories = sqliteTable("categories", {
   id: integer("id").primaryKey({ autoIncrement: true }),
   nombre: text("nombre").notNull(),
   tipo: text("tipo").notNull(), // "gasto" | "ingreso"
+});
+
+// Movimiento de plata: responde "¿a dónde va la plata?". Una compra con
+// tarjeta de crédito es gasto_real sobre la cuenta de la tarjeta (pasivo);
+// pagar el resumen es transferencia_interna hacia esa misma cuenta. Una
+// transferencia a un tercero (no una cuenta propia) es gasto_real.
+export const transactions = sqliteTable("transactions", {
+  id: integer("id").primaryKey({ autoIncrement: true }),
+  fecha: text("fecha").notNull(),
+  monto: real("monto").notNull(),
+  moneda: text("moneda").notNull(),
+  cuentaId: integer("cuenta_id").notNull().references(() => accounts.id),
+  categoriaId: integer("categoria_id").references(() => categories.id), // null en transferencias
+  tipo: text("tipo").notNull(), // "gasto_real" | "ingreso_real" | "transferencia_interna"
+  descripcion: text("descripcion"),
+  cuentaDestinoId: integer("cuenta_destino_id").references(() => accounts.id), // solo transferencia_interna
+});
+
+// Responde "¿cómo rinden las inversiones?": valor de una posición (activo)
+// en una cuenta, en un momento dado. Ya normalizado a USD para no depender
+// de re-consultar precios históricos después. Una cuenta con varios activos
+// (ej. Binance) tiene varias filas por fecha, una por activo.
+export const holdingsSnapshots = sqliteTable("holdings_snapshots", {
+  id: integer("id").primaryKey({ autoIncrement: true }),
+  cuentaId: integer("cuenta_id").notNull().references(() => accounts.id),
+  fecha: text("fecha").notNull(),
+  activo: text("activo").notNull(), // "ARS" | "USD" | "BTC" | "ETH" | ticker...
+  cantidad: real("cantidad").notNull(),
+  valorUsd: real("valor_usd").notNull(),
+  fuente: text("fuente").notNull(), // "manual" | "api_binance" | "onchain_metamask" | ...
+});
+
+// Eventos de compra/venta de un activo. Junto con holdings_snapshots permite
+// calcular costo base y por lo tanto rendimiento real (no solo variación de
+// snapshot a snapshot, que se confundiría con "agregaste más plata").
+export const holdingsMovements = sqliteTable("holdings_movements", {
+  id: integer("id").primaryKey({ autoIncrement: true }),
+  cuentaId: integer("cuenta_id").notNull().references(() => accounts.id),
+  fecha: text("fecha").notNull(),
+  activo: text("activo").notNull(),
+  tipo: text("tipo").notNull(), // "compra" | "venta"
+  cantidad: real("cantidad").notNull(),
+  precioUnitario: real("precio_unitario").notNull(),
+  moneda: text("moneda").notNull(), // moneda en la que se pagó/cobró
+  valorUsd: real("valor_usd").notNull(), // normalizado al momento del movimiento
+  fuente: text("fuente").notNull(), // "manual" | "api_binance" | ...
 });

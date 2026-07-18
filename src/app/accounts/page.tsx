@@ -6,6 +6,7 @@ type Account = {
   id: number;
   nombre: string;
   plataforma: string;
+  tipoCuenta: string;
   monedaDefault: string;
   origen: string;
   identificadorExterno: string | null;
@@ -13,6 +14,7 @@ type Account = {
 };
 
 const PLATAFORMAS = ["mercado_pago", "binance", "metamask", "balanz"] as const;
+const TIPOS_CUENTA = ["activo", "pasivo"] as const;
 const ORIGENES = [
   "manual",
   "api_binance",
@@ -24,6 +26,7 @@ export default function AccountsPage() {
   const [accounts, setAccounts] = useState<Account[]>([]);
   const [nombre, setNombre] = useState("");
   const [plataforma, setPlataforma] = useState<string>(PLATAFORMAS[0]);
+  const [tipoCuenta, setTipoCuenta] = useState<string>(TIPOS_CUENTA[0]);
   const [monedaDefault, setMonedaDefault] = useState("ARS");
   const [origen, setOrigen] = useState<string>(ORIGENES[0]);
   const [identificadorExterno, setIdentificadorExterno] = useState("");
@@ -47,6 +50,7 @@ export default function AccountsPage() {
       body: JSON.stringify({
         nombre,
         plataforma,
+        tipoCuenta,
         monedaDefault,
         origen,
         identificadorExterno: identificadorExterno || undefined,
@@ -80,6 +84,14 @@ export default function AccountsPage() {
           </select>
         </label>
         <label>
+          Tipo de cuenta
+          <select value={tipoCuenta} onChange={(e) => setTipoCuenta(e.target.value)}>
+            {TIPOS_CUENTA.map((t) => (
+              <option key={t} value={t}>{t}</option>
+            ))}
+          </select>
+        </label>
+        <label>
           Moneda default
           <input value={monedaDefault} onChange={(e) => setMonedaDefault(e.target.value)} required />
         </label>
@@ -108,6 +120,7 @@ export default function AccountsPage() {
           <tr>
             <th align="left">Nombre</th>
             <th align="left">Plataforma</th>
+            <th align="left">Tipo</th>
             <th align="left">Moneda</th>
             <th align="left">Origen</th>
             <th align="left">Activa</th>
@@ -118,6 +131,7 @@ export default function AccountsPage() {
             <tr key={a.id}>
               <td>{a.nombre}</td>
               <td>{a.plataforma}</td>
+              <td>{a.tipoCuenta}</td>
               <td>{a.monedaDefault}</td>
               <td>{a.origen}</td>
               <td>{a.activa ? "sí" : "no"}</td>

@@ -88,56 +88,85 @@ Dos reglas de clasificación que resuelven casos ambiguos sin agregar tipos nuev
 
 **E4 completo.**
 
-### E5 — Importador Mercado Pago (exportación manual)
-Sin API disponible (ver veredicto arriba), la ingesta es semi-manual: Pedro genera y descarga a mano el "Resumen de cuenta" desde el panel normal de Mercado Pago (no developers) para el período que quiera cargar, y un importador nuestro lo parsea.
-- Primer paso concreto: bajar un "Resumen de cuenta" real, ver en qué formato viene (CSV/Excel/PDF) y qué columnas trae — recién ahí se sabe si hace falta un parser de archivo estructurado (si es CSV/Excel, más simple y confiable que OCR) o si termina necesitando OCR igual (si solo exporta PDF/imagen).
-- El importador mapea filas del archivo a `transactions` candidatas (clasificación gasto/ingreso/transferencia sugerida, no automática) y pasa por pantalla de revisión antes de confirmar — mismo principio que el OCR de Balanz (E10): nada entra sin validación humana.
-**Verificable:** un export real de Mercado Pago importado y clasificado correctamente vía la pantalla de revisión.
+### E5 — Importador Mercado Pago (exportación manual) ✅
+Sin API disponible (ver veredicto arriba), la ingesta es semi-manual: Pedro descarga a mano el reporte **"Resumen de cuenta"** desde el panel de usuario de MP (no developers) y un importador lo parsea.
 
-### E6 — Integración Binance (API)
+**Formato confirmado (19-07-2026):** el "Resumen de cuenta" se baja en **CSV** (también PDF/XLSX, pero CSV es lo que usamos — data estructurada, cero OCR). Separador `;`, números en formato AR (`2.540.000,00`), fechas `dd-mm-yyyy`. Dos bloques: un resumen inicial (`INITIAL_BALANCE;CREDITS;DEBITS;FINAL_BALANCE`) que se ignora, y el detalle (`RELEASE_DATE;TRANSACTION_TYPE;REFERENCE_ID;TRANSACTION_NET_AMOUNT;PARTIAL_BALANCE`). El signo de `TRANSACTION_NET_AMOUNT` da entrada/salida.
+
+**Clasificación sugerida por el parser** (`src/lib/mp-parser.ts`, función pura + tests):
+- `Rendimientos ...` → `ingreso_real` con categoría "Rendimientos MP". Decisión: la cuenta de MP es remunerada automáticamente; se trata como interés (ingreso), no se modela el fondo como holding — Pedro solo deja en MP plata para gastar en el mes.
+- `Pago con QR ...` / `Pago <servicio>` → `gasto_real`.
+- `Transferencia enviada/recibida <tercero>` → `gasto_real` / `ingreso_real`; si el nombre es propio (lista configurable de "tus nombres") → `transferencia_interna`.
+- `Pago automático Tarjeta de crédito` → `transferencia_interna` hacia la cuenta `pasivo` de la tarjeta (se autoselecciona en la revisión).
+- `Dinero reservado/retirado Ahorro` → plumbing del auto-invest de MP; se marca **ignorar por default** (destildado en la revisión).
+
+**Nota sobre el PDF "Reporte de tenencias":** es el ledger del fondo (suscripción/rescate/rendimientos por cuotaparte). Se comprobó que sus `Rendimientos obtenidos` son los mismos eventos que los `Rendimientos` del CSV, y sus suscripción/rescate son el auto-invest automático (no decisiones de Pedro). Por eso **no se importa** para MP; el CSV solo alcanza.
+
+**Flujo:** subir CSV → `POST /api/import/mercadopago` parsea (no escribe) → pantalla `/import/mercadopago` muestra candidatas con clasificación editable, permite saltar filas → confirmar inserta en `transactions`. Nada entra sin validación humana (principio de siempre).
+
+**Verificado:** import real de junio 2026 (52 movimientos): 47 importados sin error, 21 rendimientos categorizados, pago de tarjeta como transferencia al pasivo, self-transfers detectados. Las transferencias entre cuentas propias necesitan que exista una `account` para el banco externo como destino (pendiente crear cuando haga falta).
+
+**Deuda menor:** el import inserta fila por fila (N requests); si el volumen crece, conviene un endpoint de inserción masiva. No bloqueante para uso personal.
+
+### E6 — Dashboard MVP (local) — reordenado 19-07-2026
+Se adelanta un dashboard mínimo **antes** de las integraciones, para ver los datos reales que ya entran (los ~47 movimientos de MP de E5), validar el modelo y el flujo, y ajustar antes de invertir en Binance/MetaMask. No es el dashboard completo (eso es E12); es la primera versión para iterar.
+
+**Fundación de datos (se agrega acá):**
+- Campo `accounts.grupo` ∈ {`uso`, `ahorro`, `inversion`} (default `uso`). Clasifica cada cuenta en un bloque, base del dashboard general separado que quiere Pedro (inversiones / ahorros / gastos). MP-corriente = `uso`; Ahorro MP = `ahorro`; Binance/MetaMask/Balanz = `inversion`.
+- **Ahorro MP como cuenta propia** (`grupo=ahorro`): los movimientos `Dinero reservado/retirado Ahorro` del CSV de MP dejan de ignorarse y pasan a `transferencia_interna` entre MP-corriente y Ahorro MP (Pedro aparta plata para metas específicas y quiere verlo). **Sutileza a validar con datos reales:** el retiro suele ser mayor que lo reservado por el rendimiento ganado dentro de Ahorro (ej. reservó 496.026, retiró 500.161 → ~4.100 de yield no desglosado); el saldo real de Ahorro se reconcilia con un `holdings_snapshot`, no forzando que las transferencias cierren exactas.
+- **Multi-moneda:** MP también tiene cuenta en dólares (hoy sin movimientos, a futuro sí). El modelo ya lo soporta (cada `transaction` tiene su `moneda`; `holdings_snapshots` guarda saldo por `activo`). Se agrega selector de moneda (default ARS) a la pantalla de import para cuando se baje el extracto en USD.
+
+**Dashboard MVP en sí:**
+- Vista mensual de flujo: **gastaste / ingresaste / apartaste en ahorros** (esta última = transferencias netas hacia cuentas `grupo=ahorro`), con desglose por categoría y listado de movimientos.
+- Toggle ARS⇄USD (conversión histórica de E3).
+- **Recategorización inline** desde el dashboard: editar categoría/tipo de un movimiento ya cargado (pedido por Pedro), reusando `PATCH /api/transactions/:id`.
+- Patrimonio simple por cuenta, agrupado por `grupo` (uso/ahorro/inversion) — con la data que haya.
+**Verificable:** ver los movimientos reales de MP en el dashboard, recategorizar uno desde ahí, y que el resumen mensual (gastos/ingresos/ahorros) cuadre.
+
+### E7 — Integración Binance (API)
 API key de solo lectura (`.env.local`). Trae balances actuales, historial de operaciones, depósitos y retiros. Depósitos/retiros que cruzan hacia otra cuenta propia alimentan `transactions`; compras/ventas de cripto dentro de la plataforma alimentan `holdings_movements`; balances actuales alimentan `holdings_snapshots`.
 **Verificable:** holdings y movimientos reales de Binance reflejados en la base.
 
-### E7 — Integración MetaMask (on-chain)
+### E8 — Integración MetaMask (on-chain)
 Etherscan API (o RPC público) con la dirección pública de la wallet. Balance actual + historial de transacciones on-chain. Curva histórica se reconstruye con `holdings_snapshots` propios desde que arranca el tracking (no se paga el histórico de Etherscan PRO).
 **Verificable:** holdings de MetaMask valuados en USD/ARS a fecha de hoy, snapshot guardado.
 
-### E8 — Conciliador de transferencias
-Con datos reales entrando desde MP, Binance y MetaMask (E5–E7), aparea egresos/ingresos entre cuentas propias (monto ± tolerancia, ventana temporal) y sugiere clasificarlos como transferencia interna. Nada se autoclasifica sin confirmación.
+### E9 — Conciliador de transferencias
+Con datos reales entrando desde MP, Binance y MetaMask (E5–E8), aparea egresos/ingresos entre cuentas propias (monto ± tolerancia, ventana temporal) y sugiere clasificarlos como transferencia interna. Nada se autoclasifica sin confirmación.
 **Verificable:** un flujo MP → Binance → MetaMask real queda sugerido como transferencia, no como gasto.
 
-### E9 — UI de revisión y conciliación
-Pantalla de confirmación de las sugerencias del conciliador (E8) sobre la base de la UI ya construida en los slices de E4. Es la red de seguridad de lo que viene en E10 (OCR).
+### E10 — UI de revisión y conciliación
+Pantalla de confirmación de las sugerencias del conciliador (E9) sobre la base de la UI ya construida en E4/E6. Es la red de seguridad de lo que viene en E11 (OCR).
 **Verificable:** flujo completo de confirmación de conciliaciones desde el browser.
 
-### E10 — OCR: Balanz
-Pipeline tesseract.js: screenshot → OCR → parser → transacciones candidatas → pantalla de revisión (nada entra sin validar). Parsers como funciones puras con fixtures de screenshots reales + tests. Si el export de Mercado Pago (E5) resultó ser PDF/imagen en vez de CSV/Excel, se reutiliza este mismo pipeline para MP con su propia plantilla de parser.
+### E11 — OCR: Balanz
+Pipeline tesseract.js: screenshot → OCR → parser → transacciones candidatas → pantalla de revisión (nada entra sin validar). Parsers como funciones puras con fixtures de screenshots reales + tests.
 **Verificable:** un screenshot real genera transacciones correctas con ≤1 corrección típica.
 
-### E11 — Dashboard (local)
-Módulo gastos (flujo mensual, por categoría, toggle ARS⇄USD histórico) y módulo inversiones (curva de patrimonio, rendimiento por plataforma, benchmark vs. SPY e inflación). Se itera en local, en el browser de la Mac, todas las veces que haga falta.
+### E12 — Dashboard completo (local)
+Sobre la base del MVP (E6): dashboard general con separación clara **inversiones / ahorros / gastos**, curva de patrimonio neto en el tiempo, rendimiento por plataforma, benchmark vs. SPY e inflación, módulo gastos con flujo mensual por categoría y toggle ARS⇄USD histórico. Se itera en local, en el browser de la Mac, todas las veces que haga falta.
 **Verificable:** uso real durante 1–2 semanas en local antes de deployar.
 
-### E12 — Deploy (al final de todo)
+### E13 — Deploy (al final de todo)
 Migrar SQLite → Neon (cambio de driver/connection string + migraciones). Deploy Next.js en Vercel (primera clase, cero config). Cron de actualización de cotizaciones y sincronización de integraciones (Vercel Cron). PWA instalable (manifest + service worker). Variables de entorno (API keys) configuradas en Vercel, nunca en el repo.
 **Verificable:** la app abre desde el iPhone con datos reales.
 
-### E13 (diferida) — Módulo mercado
+### E14 (diferida) — Módulo mercado
 Watchlist y top movers vía CoinGecko (preferido sobre CoinMarketCap por mejor free tier, ver tabla de validación). Lo último a propósito: es lo menos diferenciado.
 
 ---
 
 ## Riesgos y mitigaciones
 
-- **Mercado Pago sin API personal** → confirmado (ver validación), se resuelve con importador de exportación manual (E5); si el export no es un archivo estructurado, cae al mismo pipeline OCR de E10.
+- **Mercado Pago sin API personal** → confirmado (ver validación), se resuelve con importador de exportación manual (E5); si el export no es un archivo estructurado, cae al mismo pipeline OCR de E11.
 - **Etherscan free tier sin balance histórico** → se reconstruye localmente con `holdings_snapshots` propios en vez de pedirlo pago.
 - **Transacciones pre-2025** → lookup puntual por fecha en ArgentinaDatos; pre-2018 no hay MEP → fallback blue/oficial o TC manual.
 - **ArgentinaDatos se cae/discontinúa** → las tablas locales son la fuente de verdad; la API solo alimenta la actualización. Backup del dump.
 - **OCR frágil ante rediseños de apps** → parsers versionados por plantilla + pantalla de revisión siempre presente.
-- **Scope creep** → E13 no se toca hasta que E12 tenga uso habitual real.
+- **Scope creep** → E14 no se toca hasta que E13 tenga uso habitual real.
 - **SQLite→Postgres** → Drizzle desde el día 1 y sin SQL crudo específico de SQLite.
-- **Credenciales de API** → todas en `.env.local`, nunca en la base ni en el repo; en deploy (E12) van como env vars de Vercel.
+- **Credenciales de API** → todas en `.env.local`, nunca en la base ni en el repo; en deploy (E13) van como env vars de Vercel.
 
 ## Próximo paso
 
-E5 — bajar un "Resumen de cuenta" real de Mercado Pago (panel de usuario) para ver el formato exacto (CSV/Excel/PDF) y diseñar el importador según eso.
+E6 — Dashboard MVP: fundación (`accounts.grupo`, Ahorro como cuenta, moneda en import) + vista mensual de gastos/ingresos/ahorros con recategorización inline.

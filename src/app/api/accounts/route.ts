@@ -5,6 +5,7 @@ import { accounts } from "@/db/schema";
 
 const PLATAFORMAS = ["mercado_pago", "binance", "metamask", "balanz"] as const;
 const TIPOS_CUENTA = ["activo", "pasivo"] as const;
+const GRUPOS = ["uso", "ahorro", "inversion"] as const;
 const ORIGENES = [
   "manual",
   "api_binance",
@@ -16,6 +17,7 @@ const accountInput = z.object({
   nombre: z.string().min(1),
   plataforma: z.enum(PLATAFORMAS),
   tipoCuenta: z.enum(TIPOS_CUENTA).default("activo"),
+  grupo: z.enum(GRUPOS).default("uso"),
   monedaDefault: z.string().min(1),
   origen: z.enum(ORIGENES),
   identificadorExterno: z.string().optional(),

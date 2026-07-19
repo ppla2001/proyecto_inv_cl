@@ -7,6 +7,7 @@ type Account = {
   nombre: string;
   plataforma: string;
   tipoCuenta: string;
+  grupo: string;
   monedaDefault: string;
   origen: string;
   identificadorExterno: string | null;
@@ -15,6 +16,7 @@ type Account = {
 
 const PLATAFORMAS = ["mercado_pago", "binance", "metamask", "balanz"] as const;
 const TIPOS_CUENTA = ["activo", "pasivo"] as const;
+const GRUPOS = ["uso", "ahorro", "inversion"] as const;
 const ORIGENES = [
   "manual",
   "api_binance",
@@ -27,6 +29,7 @@ export default function AccountsPage() {
   const [nombre, setNombre] = useState("");
   const [plataforma, setPlataforma] = useState<string>(PLATAFORMAS[0]);
   const [tipoCuenta, setTipoCuenta] = useState<string>(TIPOS_CUENTA[0]);
+  const [grupo, setGrupo] = useState<string>(GRUPOS[0]);
   const [monedaDefault, setMonedaDefault] = useState("ARS");
   const [origen, setOrigen] = useState<string>(ORIGENES[0]);
   const [identificadorExterno, setIdentificadorExterno] = useState("");
@@ -51,6 +54,7 @@ export default function AccountsPage() {
         nombre,
         plataforma,
         tipoCuenta,
+        grupo,
         monedaDefault,
         origen,
         identificadorExterno: identificadorExterno || undefined,
@@ -92,6 +96,14 @@ export default function AccountsPage() {
           </select>
         </label>
         <label>
+          Grupo (bloque del dashboard)
+          <select value={grupo} onChange={(e) => setGrupo(e.target.value)}>
+            {GRUPOS.map((g) => (
+              <option key={g} value={g}>{g}</option>
+            ))}
+          </select>
+        </label>
+        <label>
           Moneda default
           <input value={monedaDefault} onChange={(e) => setMonedaDefault(e.target.value)} required />
         </label>
@@ -121,6 +133,7 @@ export default function AccountsPage() {
             <th align="left">Nombre</th>
             <th align="left">Plataforma</th>
             <th align="left">Tipo</th>
+            <th align="left">Grupo</th>
             <th align="left">Moneda</th>
             <th align="left">Origen</th>
             <th align="left">Activa</th>
@@ -132,6 +145,7 @@ export default function AccountsPage() {
               <td>{a.nombre}</td>
               <td>{a.plataforma}</td>
               <td>{a.tipoCuenta}</td>
+              <td>{a.grupo}</td>
               <td>{a.monedaDefault}</td>
               <td>{a.origen}</td>
               <td>{a.activa ? "sí" : "no"}</td>

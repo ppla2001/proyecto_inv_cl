@@ -29,6 +29,7 @@ export const accounts = sqliteTable("accounts", {
   nombre: text("nombre").notNull(),
   plataforma: text("plataforma").notNull(), // "mercado_pago" | "binance" | "metamask" | "balanz"
   tipoCuenta: text("tipo_cuenta").notNull().default("activo"), // "activo" | "pasivo" (ej. tarjeta de crédito)
+  grupo: text("grupo").notNull().default("uso"), // "uso" | "ahorro" | "inversion" (bloque del dashboard)
   monedaDefault: text("moneda_default").notNull(), // "ARS" | "USD" | "ETH" | etc.
   origen: text("origen").notNull(), // "manual" | "api_binance" | "api_mercadopago" | "onchain_metamask"
   identificadorExterno: text("identificador_externo"), // no sensible, ej. address de wallet

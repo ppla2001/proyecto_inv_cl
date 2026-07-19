@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from "react";
 
-type Account = { id: number; nombre: string; tipoCuenta: string };
+type Account = { id: number; nombre: string; tipoCuenta: string; grupo: string };
 type Category = { id: number; nombre: string; tipo: string };
 
 type Candidate = {
@@ -13,6 +13,7 @@ type Candidate = {
   tipoSugerido: "gasto_real" | "ingreso_real" | "transferencia_interna";
   categoriaSugerida?: string;
   esPagoTarjeta: boolean;
+  esAhorro: boolean;
   ignorarPorDefecto: boolean;
 };
 
@@ -29,6 +30,7 @@ export default function ImportMpPage() {
   const [accounts, setAccounts] = useState<Account[]>([]);
   const [categories, setCategories] = useState<Category[]>([]);
   const [cuentaOrigenId, setCuentaOrigenId] = useState("");
+  const [moneda, setMoneda] = useState("ARS");
   const [selfNames, setSelfNames] = useState("PLA PEDRO, Pedro Pla");
   const [csvText, setCsvText] = useState("");
   const [rows, setRows] = useState<Row[]>([]);
@@ -54,6 +56,17 @@ export default function ImportMpPage() {
   function tarjetaPasivo(): string {
     const t = accounts.find((a) => a.tipoCuenta === "pasivo");
     return t ? String(t.id) : "";
+  }
+
+  function cuentaAhorro(): string {
+    const a = accounts.find((acc) => acc.grupo === "ahorro");
+    return a ? String(a.id) : "";
+  }
+
+  function destinoSugerido(c: Candidate): string {
+    if (c.esPagoTarjeta) return tarjetaPasivo();
+    if (c.esAhorro) return cuentaAhorro();
+    return "";
   }
 
   async function handleFile(e: React.ChangeEvent<HTMLInputElement>) {
@@ -85,7 +98,7 @@ export default function ImportMpPage() {
         incluir: !c.ignorarPorDefecto,
         tipo: c.tipoSugerido,
         categoriaId: matchCategoria(c.categoriaSugerida),
-        cuentaDestinoId: c.esPagoTarjeta ? tarjetaPasivo() : "",
+        cuentaDestinoId: destinoSugerido(c),
       }))
     );
   }
@@ -108,7 +121,7 @@ export default function ImportMpPage() {
       const payload = {
         fecha: r.fecha,
         monto: r.monto,
-        moneda: "ARS",
+        moneda,
         cuentaId: Number(cuentaOrigenId),
         categoriaId:
           r.tipo !== "transferencia_interna" && r.categoriaId
@@ -149,6 +162,13 @@ export default function ImportMpPage() {
             {accounts.map((a) => (
               <option key={a.id} value={a.id}>{a.nombre}</option>
             ))}
+          </select>
+        </label>
+        <label>
+          Moneda del extracto
+          <select value={moneda} onChange={(e) => setMoneda(e.target.value)}>
+            <option value="ARS">ARS</option>
+            <option value="USD">USD</option>
           </select>
         </label>
         <label>

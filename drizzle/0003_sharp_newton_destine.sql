@@ -1,0 +1,1 @@
+ALTER TABLE `accounts` ADD `grupo` text DEFAULT 'uso' NOT NULL;

@@ -4,11 +4,11 @@
 > Responde tres preguntas: ¿a dónde va la plata?, ¿cómo rinden las inversiones vs. benchmarks?, ¿qué mirar del mercado?
 > **Restricción dura: costo cero absoluto.** Sin APIs pagas de ningún tipo (incluida inferencia de IA).
 
-**Stack:** Node + Next.js (una sola app: API routes + PWA React) · Drizzle ORM sobre SQLite (local) → Neon Postgres (deploy) · OCR local con tesseract.js (solo Balanz, y fallback de Mercado Pago si su API no alcanza) · ArgentinaDatos para cotizaciones e inflación · Binance API (pública + autenticada de solo lectura) · Etherscan API para MetaMask on-chain · Mercado Pago API oficial (a validar en E5).
+**Stack:** Node + Next.js (una sola app: API routes + PWA React) · Drizzle ORM sobre SQLite (local) → Neon Postgres (deploy) · OCR local con tesseract.js (Balanz) · ArgentinaDatos para cotizaciones e inflación · Binance API (pública + autenticada de solo lectura) · Etherscan API para MetaMask on-chain · Mercado Pago: **sin API pública para movimientos personales** (confirmado 19-07-2026) → importador de exportación manual del panel.
 
 **Modo de trabajo:** desarrollo local-first en este repo, todo con Claude en Cowork. El deploy es la anteúltima etapa, después de iterar el dashboard en local. Commits chicos, rama por etapa, PR contra `main`.
 
-**Principio de ingesta:** priorizar conexiones oficiales por API sobre OCR siempre que exista una opción gratuita. OCR queda reservado para lo que no tiene API (Balanz) y como fallback si una integración por API resulta insuficiente (a confirmar con Mercado Pago en E5).
+**Principio de ingesta:** priorizar conexiones oficiales por API sobre OCR/import manual siempre que exista una opción gratuita y con la cobertura que necesitamos. Mercado Pago no la tiene (ver validación abajo); Balanz nunca la tuvo. Ambos quedan como ingesta semi-manual (exportación/screenshot + parser + pantalla de revisión), no automatizados end-to-end.
 
 ---
 
@@ -33,10 +33,20 @@
 |---|---|---|---|---|
 | **Binance** | API REST autenticada, API key de solo lectura (`enableReading: true`, sin retiros/trading) generada en la propia cuenta | Gratis, sin tier pago | Balances, historial de operaciones, depósitos y retiros | Ninguno relevante para uso personal |
 | **MetaMask (on-chain)** | Etherscan API (free tier: 5 calls/seg) o RPC público | Gratis | Balance actual + historial de transacciones | **Balance histórico en fecha pasada es función PRO (paga)** → se resuelve reconstruyendo la curva con snapshots propios desde que empecemos a trackear (tabla `balance_snapshots`), no pidiéndoselo a Etherscan. Desde 01-07-2026 el free tier limita a 1000 registros por request (no debería afectar a una wallet personal). |
-| **Mercado Pago** | API oficial, endpoint `POST /v1/account/settlement_report` ("Todas las transacciones"), autenticado con `access_token` de una app creada en el panel de developers desde la propia cuenta personal (no requiere cuenta comercial) | Gratis | **Sin confirmar**: la documentación no deja claro si cubre *todos* los movimientos de la billetera (transferencias salientes a Binance, compras con tarjeta MP, pagos de servicios) o solo el dinero que entra como cobros/settlements — el lenguaje de la doc está orientado a "vendedor cobrando pagos" | **Se valida como primer paso de E5.** Si no cubre todo el movimiento personal, el fallback es OCR (mismo pipeline que Balanz) |
+| **Mercado Pago** | ~~API oficial~~ — **descartada, ver veredicto abajo** | — | — | — |
 | **CoinGecko** (para E13, módulo mercado diferido) | API pública | Gratis, 10.000 llamadas/mes, sin key para lo básico | Precios, 1 año de histórico | Preferido sobre CoinMarketCap (free tier de CMC: 9 endpoints, casi sin histórico, ~24x más caro en llamadas equivalentes) |
 
-**Decisión de credenciales:** ninguna API key/secret/token vive en la base de datos ni se commitea. Todo en `.env.local` (ya gitignoreado): `BINANCE_API_KEY`, `BINANCE_API_SECRET`, `MERCADOPAGO_ACCESS_TOKEN`, `ETHERSCAN_API_KEY`. La tabla `accounts` solo guarda identificadores no sensibles (ej. dirección pública de wallet de MetaMask).
+**Veredicto Mercado Pago (19-07-2026): sin API pública para movimientos de una cuenta personal.** Se probaron tres combinaciones reales contra `POST /v1/account/settlement_report` (el único endpoint documentado para "Todas las transacciones"):
+
+| Token usado | Resultado |
+|---|---|
+| Access token estático de una app de Mercado Pago | 403 (prohibido) |
+| Token OAuth autorizado por el usuario vía app de Mercado Pago | 404 (no encontrado) |
+| Token OAuth autorizado por el usuario vía app de Mercado Libre | 404 (no encontrado) |
+
+El endpoint existe (responde, no es un 404 de ruta inexistente) pero está pensado para vendedores liquidando cobros — no hay nada que "liquidar" en una cuenta que no vende, así que el recurso no existe para ese caso sin importar el token. En el panel de usuario (no developers) sí se pueden generar a mano "Resumen de cuenta" y "Reporte de tenencias", pero no tienen equivalente en la API pública. **Decisión: se importan manualmente** (ver E5 rediseñado más abajo) en vez de automatizar el pull.
+
+**Decisión de credenciales:** ninguna API key/secret/token vive en la base de datos ni se commitea. Todo en `.env.local` (ya gitignoreado): `BINANCE_API_KEY`, `BINANCE_API_SECRET`, `ETHERSCAN_API_KEY`. La tabla `accounts` solo guarda identificadores no sensibles (ej. dirección pública de wallet de MetaMask).
 
 ---
 
@@ -70,17 +80,19 @@ Dos reglas de clasificación que resuelven casos ambiguos sin agregar tipos nuev
 
 - **Slice 1 — `accounts`** ✅: id, nombre, plataforma (`mercado_pago` / `binance` / `metamask` / `balanz`), tipo_cuenta (`activo` / `pasivo`, default `activo`), moneda_default, origen (`manual` / `api_binance` / `api_mercadopago` / `onchain_metamask`), identificador_externo (no sensible, ej. address de wallet), activa. + endpoints GET/POST + pantalla simple de alta/listado.
 - **Slice 2 — `categories`** ✅: id, nombre, tipo (gasto/ingreso). + GET/POST + UI.
-- **Slice 3 — `transactions`**: id, fecha, monto, moneda, cuenta_id (FK), categoria_id (FK nullable — null en transferencias), tipo (`gasto_real` / `ingreso_real` / `transferencia_interna`), descripción, cuenta_destino_id (FK nullable, solo transferencias). + GET (con filtros)/POST/PATCH/DELETE + UI de alta/edición/listado. Validación de payloads con `zod`.
-- **Slice 4 — `holdings_snapshots`**: id, cuenta_id (FK), fecha, activo (`ARS`/`USD`/`BTC`/ticker...), cantidad, valor_usd (normalizado al momento, no depende de re-consultar precios históricos después), fuente — log de eventos, no cron diario; se llena en cada carga manual, OCR (E10) o consulta on-chain/API (E5-E7). + GET/POST + UI simple.
-- **Slice 5 — `holdings_movements`**: id, cuenta_id (FK), fecha, activo, tipo (`compra`/`venta`), cantidad, precio_unitario, moneda, valor_usd (normalizado), fuente. + GET/POST + UI simple.
+- **Slice 3 — `transactions`** ✅: id, fecha, monto, moneda, cuenta_id (FK), categoria_id (FK nullable — null en transferencias), tipo (`gasto_real` / `ingreso_real` / `transferencia_interna`), descripción, cuenta_destino_id (FK nullable, solo transferencias). GET (con filtros)/POST/PATCH/DELETE + UI de alta/edición/listado. Validación de payloads con `zod`.
+- **Slice 4 — `holdings_snapshots`** ✅: id, cuenta_id (FK), fecha, activo (`ARS`/`USD`/`BTC`/ticker...), cantidad, valor_usd (normalizado al momento, no depende de re-consultar precios históricos después), fuente — log de eventos, no cron diario; se llena en cada carga manual, OCR/import (E5, E10) o consulta on-chain/API (E6-E7). GET/POST + UI simple.
+- **Slice 5 — `holdings_movements`** ✅: id, cuenta_id (FK), fecha, activo, tipo (`compra`/`venta`), cantidad, precio_unitario, moneda, valor_usd (normalizado), fuente. GET/POST + UI simple.
 
-**Verificable por slice:** alta/edición/listado real desde el browser, no solo `curl`.
+**Verificado por slice:** alta/edición/listado real desde el browser, no solo `curl`. Probado end-to-end: gasto con tarjeta de crédito (`gasto_real` sobre cuenta `pasivo`) + pago de resumen (`transferencia_interna`); compra de cripto (`holdings_movements`) + snapshot posterior (`holdings_snapshots`) mostrando rendimiento positivo.
 
-### E5 — Integración Mercado Pago (API)
-Primer paso: **validar la duda de cobertura** (ver tabla de arriba) con una prueba real — crear app en el panel de developers con la cuenta personal, generar `access_token`, pegarle a `POST /v1/account/settlement_report` con un rango de fechas conocido, y comparar contra el extracto real de la app de MP.
-- Si cubre todos los movimientos (transferencias salientes incluidas): se construye el importador (mapea el reporte a `transactions`, pasa por pantalla de revisión antes de confirmar, igual que OCR).
-- Si no cubre todo: se documenta acá qué falta, y ese resto queda para el pipeline OCR de E10 (mismo tratamiento que Balanz).
-**Verificable:** un rango de fechas real importado y clasificado correctamente, con veredicto documentado sobre la cobertura de la API.
+**E4 completo.**
+
+### E5 — Importador Mercado Pago (exportación manual)
+Sin API disponible (ver veredicto arriba), la ingesta es semi-manual: Pedro genera y descarga a mano el "Resumen de cuenta" desde el panel normal de Mercado Pago (no developers) para el período que quiera cargar, y un importador nuestro lo parsea.
+- Primer paso concreto: bajar un "Resumen de cuenta" real, ver en qué formato viene (CSV/Excel/PDF) y qué columnas trae — recién ahí se sabe si hace falta un parser de archivo estructurado (si es CSV/Excel, más simple y confiable que OCR) o si termina necesitando OCR igual (si solo exporta PDF/imagen).
+- El importador mapea filas del archivo a `transactions` candidatas (clasificación gasto/ingreso/transferencia sugerida, no automática) y pasa por pantalla de revisión antes de confirmar — mismo principio que el OCR de Balanz (E10): nada entra sin validación humana.
+**Verificable:** un export real de Mercado Pago importado y clasificado correctamente vía la pantalla de revisión.
 
 ### E6 — Integración Binance (API)
 API key de solo lectura (`.env.local`). Trae balances actuales, historial de operaciones, depósitos y retiros. Depósitos/retiros que cruzan hacia otra cuenta propia alimentan `transactions`; compras/ventas de cripto dentro de la plataforma alimentan `holdings_movements`; balances actuales alimentan `holdings_snapshots`.
@@ -98,8 +110,8 @@ Con datos reales entrando desde MP, Binance y MetaMask (E5–E7), aparea egresos
 Pantalla de confirmación de las sugerencias del conciliador (E8) sobre la base de la UI ya construida en los slices de E4. Es la red de seguridad de lo que viene en E10 (OCR).
 **Verificable:** flujo completo de confirmación de conciliaciones desde el browser.
 
-### E10 — OCR: Balanz (y fallback de Mercado Pago si aplica)
-Pipeline tesseract.js: screenshot → OCR → parser → transacciones candidatas → pantalla de revisión (nada entra sin validar). Parsers como funciones puras con fixtures de screenshots reales + tests. Si en E5 se determinó que la API de MP no cubre todo, se agrega acá una segunda plantilla de parser para lo que falte de MP.
+### E10 — OCR: Balanz
+Pipeline tesseract.js: screenshot → OCR → parser → transacciones candidatas → pantalla de revisión (nada entra sin validar). Parsers como funciones puras con fixtures de screenshots reales + tests. Si el export de Mercado Pago (E5) resultó ser PDF/imagen en vez de CSV/Excel, se reutiliza este mismo pipeline para MP con su propia plantilla de parser.
 **Verificable:** un screenshot real genera transacciones correctas con ≤1 corrección típica.
 
 ### E11 — Dashboard (local)
@@ -117,7 +129,7 @@ Watchlist y top movers vía CoinGecko (preferido sobre CoinMarketCap por mejor f
 
 ## Riesgos y mitigaciones
 
-- **Mercado Pago API insuficiente** → validado como primer paso de E5, con fallback documentado a OCR (E10) si hace falta.
+- **Mercado Pago sin API personal** → confirmado (ver validación), se resuelve con importador de exportación manual (E5); si el export no es un archivo estructurado, cae al mismo pipeline OCR de E10.
 - **Etherscan free tier sin balance histórico** → se reconstruye localmente con `holdings_snapshots` propios en vez de pedirlo pago.
 - **Transacciones pre-2025** → lookup puntual por fecha en ArgentinaDatos; pre-2018 no hay MEP → fallback blue/oficial o TC manual.
 - **ArgentinaDatos se cae/discontinúa** → las tablas locales son la fuente de verdad; la API solo alimenta la actualización. Backup del dump.
@@ -128,4 +140,4 @@ Watchlist y top movers vía CoinGecko (preferido sobre CoinMarketCap por mejor f
 
 ## Próximo paso
 
-E4 — slice 3: tabla `transactions` + endpoints + UI mínima (slices 1 y 2 ya completados).
+E5 — bajar un "Resumen de cuenta" real de Mercado Pago (panel de usuario) para ver el formato exacto (CSV/Excel/PDF) y diseñar el importador según eso.

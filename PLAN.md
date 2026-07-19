@@ -88,11 +88,25 @@ Dos reglas de clasificación que resuelven casos ambiguos sin agregar tipos nuev
 
 **E4 completo.**
 
-### E5 — Importador Mercado Pago (exportación manual)
-Sin API disponible (ver veredicto arriba), la ingesta es semi-manual: Pedro genera y descarga a mano el "Resumen de cuenta" desde el panel normal de Mercado Pago (no developers) para el período que quiera cargar, y un importador nuestro lo parsea.
-- Primer paso concreto: bajar un "Resumen de cuenta" real, ver en qué formato viene (CSV/Excel/PDF) y qué columnas trae — recién ahí se sabe si hace falta un parser de archivo estructurado (si es CSV/Excel, más simple y confiable que OCR) o si termina necesitando OCR igual (si solo exporta PDF/imagen).
-- El importador mapea filas del archivo a `transactions` candidatas (clasificación gasto/ingreso/transferencia sugerida, no automática) y pasa por pantalla de revisión antes de confirmar — mismo principio que el OCR de Balanz (E10): nada entra sin validación humana.
-**Verificable:** un export real de Mercado Pago importado y clasificado correctamente vía la pantalla de revisión.
+### E5 — Importador Mercado Pago (exportación manual) ✅
+Sin API disponible (ver veredicto arriba), la ingesta es semi-manual: Pedro descarga a mano el reporte **"Resumen de cuenta"** desde el panel de usuario de MP (no developers) y un importador lo parsea.
+
+**Formato confirmado (19-07-2026):** el "Resumen de cuenta" se baja en **CSV** (también PDF/XLSX, pero CSV es lo que usamos — data estructurada, cero OCR). Separador `;`, números en formato AR (`2.540.000,00`), fechas `dd-mm-yyyy`. Dos bloques: un resumen inicial (`INITIAL_BALANCE;CREDITS;DEBITS;FINAL_BALANCE`) que se ignora, y el detalle (`RELEASE_DATE;TRANSACTION_TYPE;REFERENCE_ID;TRANSACTION_NET_AMOUNT;PARTIAL_BALANCE`). El signo de `TRANSACTION_NET_AMOUNT` da entrada/salida.
+
+**Clasificación sugerida por el parser** (`src/lib/mp-parser.ts`, función pura + tests):
+- `Rendimientos ...` → `ingreso_real` con categoría "Rendimientos MP". Decisión: la cuenta de MP es remunerada automáticamente; se trata como interés (ingreso), no se modela el fondo como holding — Pedro solo deja en MP plata para gastar en el mes.
+- `Pago con QR ...` / `Pago <servicio>` → `gasto_real`.
+- `Transferencia enviada/recibida <tercero>` → `gasto_real` / `ingreso_real`; si el nombre es propio (lista configurable de "tus nombres") → `transferencia_interna`.
+- `Pago automático Tarjeta de crédito` → `transferencia_interna` hacia la cuenta `pasivo` de la tarjeta (se autoselecciona en la revisión).
+- `Dinero reservado/retirado Ahorro` → plumbing del auto-invest de MP; se marca **ignorar por default** (destildado en la revisión).
+
+**Nota sobre el PDF "Reporte de tenencias":** es el ledger del fondo (suscripción/rescate/rendimientos por cuotaparte). Se comprobó que sus `Rendimientos obtenidos` son los mismos eventos que los `Rendimientos` del CSV, y sus suscripción/rescate son el auto-invest automático (no decisiones de Pedro). Por eso **no se importa** para MP; el CSV solo alcanza.
+
+**Flujo:** subir CSV → `POST /api/import/mercadopago` parsea (no escribe) → pantalla `/import/mercadopago` muestra candidatas con clasificación editable, permite saltar filas → confirmar inserta en `transactions`. Nada entra sin validación humana (principio de siempre).
+
+**Verificado:** import real de junio 2026 (52 movimientos): 47 importados sin error, 21 rendimientos categorizados, pago de tarjeta como transferencia al pasivo, self-transfers detectados. Las transferencias entre cuentas propias necesitan que exista una `account` para el banco externo como destino (pendiente crear cuando haga falta).
+
+**Deuda menor:** el import inserta fila por fila (N requests); si el volumen crece, conviene un endpoint de inserción masiva. No bloqueante para uso personal.
 
 ### E6 — Integración Binance (API)
 API key de solo lectura (`.env.local`). Trae balances actuales, historial de operaciones, depósitos y retiros. Depósitos/retiros que cruzan hacia otra cuenta propia alimentan `transactions`; compras/ventas de cripto dentro de la plataforma alimentan `holdings_movements`; balances actuales alimentan `holdings_snapshots`.
@@ -116,6 +130,7 @@ Pipeline tesseract.js: screenshot → OCR → parser → transacciones candidata
 
 ### E11 — Dashboard (local)
 Módulo gastos (flujo mensual, por categoría, toggle ARS⇄USD histórico) y módulo inversiones (curva de patrimonio, rendimiento por plataforma, benchmark vs. SPY e inflación). Se itera en local, en el browser de la Mac, todas las veces que haga falta.
+**Requisito (pedido por Pedro, 19-07-2026):** poder marcar/recategorizar movimientos, gastos y transferencias directamente desde el dashboard una vez que ya figuran (editar categoría, cambiar tipo, etiquetar) — no solo desde la pantalla de alta/import. Reutiliza el `PATCH /api/transactions/:id` que ya existe.
 **Verificable:** uso real durante 1–2 semanas en local antes de deployar.
 
 ### E12 — Deploy (al final de todo)
@@ -140,4 +155,4 @@ Watchlist y top movers vía CoinGecko (preferido sobre CoinMarketCap por mejor f
 
 ## Próximo paso
 
-E5 — bajar un "Resumen de cuenta" real de Mercado Pago (panel de usuario) para ver el formato exacto (CSV/Excel/PDF) y diseñar el importador según eso.
+E6 — Integración Binance (API key de solo lectura). E5 completo (importador de Mercado Pago vía CSV, probado con datos reales).

@@ -31,7 +31,7 @@ Dashboard personal de finanzas e inversiones. PWA para iPhone, uso individual (P
 
 ## Plan
 
-Ver `PLAN.md` — etapas E1 a E13, cada una con criterio verificable. Estado actual: **E1-E4 completadas**. Próximo: **E5**, importador de Mercado Pago vía exportación manual (no API — ver `PLAN.md`).
+Ver `PLAN.md` — etapas E1 a E13, cada una con criterio verificable. Estado actual: **E1-E5 completadas** (E5 = importador de Mercado Pago vía CSV manual, no API). Próximo: **E6**, integración Binance.
 
 ## Convenciones
 

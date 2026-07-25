@@ -18,9 +18,13 @@ export type MpCandidate = {
   // true si es "Pago automático Tarjeta de crédito": el destino es la
   // cuenta pasivo de la tarjeta, que se autoselecciona en la revisión.
   esPagoTarjeta: boolean;
-  // true si es un movimiento de Ahorro: el destino es la cuenta grupo=ahorro,
-  // que se autoselecciona en la revisión.
+  // true si es un movimiento de Ahorro: una de las patas es la cuenta
+  // grupo=ahorro, que se autoselecciona en la revisión.
   esAhorro: boolean;
+  // Solo para esAhorro: true si la plata SALE de Ahorro hacia la cuenta
+  // corriente ("Dinero retirado"); false si ENTRA a Ahorro ("Dinero
+  // reservado"). Define la dirección origen/destino de la transferencia.
+  esAhorroSalida: boolean;
   // true si conviene ignorar por default (plumbing interno de MP).
   ignorarPorDefecto: boolean;
 };
@@ -58,6 +62,7 @@ function clasificar(
   | "categoriaSugerida"
   | "esPagoTarjeta"
   | "esAhorro"
+  | "esAhorroSalida"
   | "ignorarPorDefecto"
 > {
   const tipo = tipoRaw.trim();
@@ -70,19 +75,25 @@ function clasificar(
       categoriaSugerida: RENDIMIENTOS_CATEGORIA,
       esPagoTarjeta: false,
       esAhorro: false,
+      esAhorroSalida: false,
       ignorarPorDefecto: false,
     };
   }
 
   // Ahorro: Pedro aparta plata deliberadamente para metas específicas y quiere
   // verlo. Es una transferencia entre MP-corriente y la cuenta de Ahorro
-  // (grupo=ahorro), que se autoselecciona como destino en la revisión.
+  // (grupo=ahorro). La DIRECCIÓN importa: "reservado" entra a Ahorro
+  // (corriente -> Ahorro); "retirado" sale de Ahorro (Ahorro -> corriente).
+  // El monto en el CSV lo confirma: reservado es negativo (sale de corriente),
+  // retirado es positivo (entra a corriente).
   // (Distinto del auto-invest del fondo, que solo aparece en el PDF de
   // tenencias y sí se ignora.)
-  if (/dinero (reservado|retirado) ahorro/i.test(tipo)) {
+  const ahorro = tipo.match(/dinero (reservado|retirado) ahorro/i);
+  if (ahorro) {
     return {
       tipoSugerido: "transferencia_interna",
       esAhorro: true,
+      esAhorroSalida: /retirado/i.test(ahorro[1]),
       esPagoTarjeta: false,
       ignorarPorDefecto: false,
     };
@@ -95,6 +106,7 @@ function clasificar(
       tipoSugerido: "transferencia_interna",
       esPagoTarjeta: true,
       esAhorro: false,
+      esAhorroSalida: false,
       ignorarPorDefecto: false,
     };
   }
@@ -106,6 +118,7 @@ function clasificar(
         tipoSugerido: "transferencia_interna",
         esPagoTarjeta: false,
         esAhorro: false,
+        esAhorroSalida: false,
         ignorarPorDefecto: false,
       };
     }
@@ -113,6 +126,7 @@ function clasificar(
       tipoSugerido: esNegativo ? "gasto_real" : "ingreso_real",
       esPagoTarjeta: false,
       esAhorro: false,
+      esAhorroSalida: false,
       ignorarPorDefecto: false,
     };
   }
@@ -122,6 +136,7 @@ function clasificar(
     tipoSugerido: esNegativo ? "gasto_real" : "ingreso_real",
     esPagoTarjeta: false,
     esAhorro: false,
+    esAhorroSalida: false,
     ignorarPorDefecto: false,
   };
 }

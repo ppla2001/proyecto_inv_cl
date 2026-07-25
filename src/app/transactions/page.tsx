@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import { apiFetch, mensajeDeError } from "@/lib/api-client";
 
 type Account = { id: number; nombre: string };
 type Category = { id: number; nombre: string; tipo: string };
@@ -35,14 +36,18 @@ export default function TransactionsPage() {
   const [error, setError] = useState<string | null>(null);
 
   async function cargarTodo() {
-    const [t, a, c] = await Promise.all([
-      fetch("/api/transactions").then((r) => r.json()),
-      fetch("/api/accounts").then((r) => r.json()),
-      fetch("/api/categories").then((r) => r.json()),
-    ]);
-    setTransactions(t);
-    setAccounts(a);
-    setCategories(c);
+    try {
+      const [t, a, c] = await Promise.all([
+        apiFetch<Transaction[]>("/api/transactions"),
+        apiFetch<Account[]>("/api/accounts"),
+        apiFetch<Category[]>("/api/categories"),
+      ]);
+      setTransactions(t);
+      setAccounts(a);
+      setCategories(c);
+    } catch (e) {
+      setError(mensajeDeError(e));
+    }
   }
 
   useEffect(() => {
@@ -74,8 +79,13 @@ export default function TransactionsPage() {
   }
 
   async function borrar(id: number) {
-    await fetch(`/api/transactions/${id}`, { method: "DELETE" });
-    await cargarTodo();
+    setError(null);
+    try {
+      await apiFetch(`/api/transactions/${id}`, { method: "DELETE" });
+      await cargarTodo();
+    } catch (e) {
+      setError(mensajeDeError(e));
+    }
   }
 
   async function handleSubmit(e: React.FormEvent) {
@@ -96,18 +106,17 @@ export default function TransactionsPage() {
           : undefined,
     };
 
-    const res = await fetch(
-      editId ? `/api/transactions/${editId}` : "/api/transactions",
-      {
-        method: editId ? "PATCH" : "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(payload),
-      }
-    );
-
-    if (!res.ok) {
-      const data = await res.json();
-      setError(JSON.stringify(data.error));
+    try {
+      await apiFetch(
+        editId ? `/api/transactions/${editId}` : "/api/transactions",
+        {
+          method: editId ? "PATCH" : "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(payload),
+        }
+      );
+    } catch (e) {
+      setError(mensajeDeError(e));
       return;
     }
     resetForm();

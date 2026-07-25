@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import { apiFetch, mensajeDeError } from "@/lib/api-client";
 
 type Account = {
   id: number;
@@ -36,8 +37,11 @@ export default function AccountsPage() {
   const [error, setError] = useState<string | null>(null);
 
   async function cargarCuentas() {
-    const res = await fetch("/api/accounts");
-    setAccounts(await res.json());
+    try {
+      setAccounts(await apiFetch<Account[]>("/api/accounts"));
+    } catch (e) {
+      setError(mensajeDeError(e));
+    }
   }
 
   useEffect(() => {
@@ -47,22 +51,22 @@ export default function AccountsPage() {
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
     setError(null);
-    const res = await fetch("/api/accounts", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        nombre,
-        plataforma,
-        tipoCuenta,
-        grupo,
-        monedaDefault,
-        origen,
-        identificadorExterno: identificadorExterno || undefined,
-      }),
-    });
-    if (!res.ok) {
-      const data = await res.json();
-      setError(JSON.stringify(data.error));
+    try {
+      await apiFetch("/api/accounts", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          nombre,
+          plataforma,
+          tipoCuenta,
+          grupo,
+          monedaDefault,
+          origen,
+          identificadorExterno: identificadorExterno || undefined,
+        }),
+      });
+    } catch (e) {
+      setError(mensajeDeError(e));
       return;
     }
     setNombre("");

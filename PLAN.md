@@ -6,7 +6,9 @@
 
 **Stack:** Node + Next.js (una sola app: API routes + PWA React) · Drizzle ORM sobre SQLite (local) → Neon Postgres (deploy) · OCR local con tesseract.js (Balanz) · ArgentinaDatos para cotizaciones e inflación · Binance API (pública + autenticada de solo lectura) · Etherscan API para MetaMask on-chain · Mercado Pago: **sin API pública para movimientos personales** (confirmado 19-07-2026) → importador de exportación manual del panel.
 
-**Modo de trabajo:** desarrollo local-first en este repo, todo con Claude en Cowork. El deploy es la anteúltima etapa, después de iterar el dashboard en local. Commits chicos, rama por etapa, PR contra `main`.
+**Modo de trabajo:** desarrollo local-first en este repo, todo con Claude en Cowork. El deploy es la anteúltima etapa, después de iterar el dashboard en local. Commits chicos, rama por etapa, PR contra `main`. Historial de cambios en `CHANGELOG.md` (una entrada por etapa); planificación hacia adelante acá.
+
+**Dirección posible (a confirmar, 19-07-2026):** una primera versión con **solo MetaMask integrado por API**, y MP / Balanz / Binance todos ingeridos por CSV o similar (dejando la integración de Binance por API para más adelante). Por eso el endurecimiento de E6.5 se diseña genérico para importadores CSV, no atado a MP. Si se confirma, se reordenan E7–E8.
 
 **Principio de ingesta:** priorizar conexiones oficiales por API sobre OCR/import manual siempre que exista una opción gratuita y con la cobertura que necesitamos. Mercado Pago no la tiene (ver validación abajo); Balanz nunca la tuvo. Ambos quedan como ingesta semi-manual (exportación/screenshot + parser + pantalla de revisión), no automatizados end-to-end.
 
@@ -123,6 +125,13 @@ Se adelanta un dashboard mínimo **antes** de las integraciones, para ver los da
 - Patrimonio simple por cuenta, agrupado por `grupo` (uso/ahorro/inversion) — con la data que haya.
 **Verificable:** ver los movimientos reales de MP en el dashboard, recategorizar uno desde ahí, y que el resumen mensual (gastos/ingresos/ahorros) cuadre.
 
+### E6.5 — Endurecimiento (robustez y manejo de errores) — 19-07-2026
+Antes de sumar más integraciones se cierra un conjunto de gaps de robustez detectados por Pedro + auditoría de Claude (9 issues únicos consolidados). Objetivo doble: integridad de datos y una capa de errores consistente que facilite debuggear más adelante. **Diseño genérico**: dedupe, import bulk y helpers de error quedan reutilizables para cualquier importador CSV (Balanz/Binance a futuro), no atados a MP.
+- **Integridad:** `foreign_keys` ON en SQLite; validación de existencia de refs (`cuentaId`/`categoriaId`/`cuentaDestinoId`) en las rutas; dedupe de import por `external_id` (columna nueva en `transactions`, unique por `(cuentaId, external_id)`, se completa con el `referenceId` de la fuente — así reimportar el mismo CSV no duplica); PATCH de `transactions` valida las reglas de negocio del POST sobre el estado resultante (merge current+patch).
+- **Flujo:** endpoint de import bulk transaccional (atómico) que reporta duplicados y errores por fila; helper `apiFetch` en el cliente + estado de error en dashboard/import (no más crash silencioso); rango de fechas del dashboard usa el último día real del mes.
+- **Prolijidad:** wrapper de rutas que atrapa/loguea con contexto y devuelve `{ error: { message, details } }`; aviso explícito cuando falta cotización en vez de convertir a 0 en silencio; error boundary de React (`error.tsx`).
+**Verificable:** reimportar el mismo CSV no duplica; recategorizar a un estado inválido desde el dashboard se rechaza con mensaje claro; una API caída muestra error en la UI en vez de crashear.
+
 ### E7 — Integración Binance (API)
 API key de solo lectura (`.env.local`). Trae balances actuales, historial de operaciones, depósitos y retiros. Depósitos/retiros que cruzan hacia otra cuenta propia alimentan `transactions`; compras/ventas de cripto dentro de la plataforma alimentan `holdings_movements`; balances actuales alimentan `holdings_snapshots`.
 **Verificable:** holdings y movimientos reales de Binance reflejados en la base.
@@ -169,4 +178,4 @@ Watchlist y top movers vía CoinGecko (preferido sobre CoinMarketCap por mejor f
 
 ## Próximo paso
 
-E6 — Dashboard MVP: fundación (`accounts.grupo`, Ahorro como cuenta, moneda en import) + vista mensual de gastos/ingresos/ahorros con recategorización inline.
+E6.5 — Endurecimiento: slice 1 (integridad: FK, dedupe por external_id, PATCH rules), luego slice 2 (flujo) y slice 3 (prolijidad).

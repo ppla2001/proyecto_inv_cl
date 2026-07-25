@@ -1,4 +1,11 @@
-import { sqliteTable, text, real, primaryKey, integer } from "drizzle-orm/sqlite-core";
+import {
+  sqliteTable,
+  text,
+  real,
+  primaryKey,
+  integer,
+  uniqueIndex,
+} from "drizzle-orm/sqlite-core";
 
 // Cotizaciones diarias (mep/blue/oficial/cripto), almacenadas desde 2025-01-01
 // en adelante para mep (ver PLAN.md); las demás desde que se agregaron.
@@ -48,17 +55,27 @@ export const categories = sqliteTable("categories", {
 // tarjeta de crédito es gasto_real sobre la cuenta de la tarjeta (pasivo);
 // pagar el resumen es transferencia_interna hacia esa misma cuenta. Una
 // transferencia a un tercero (no una cuenta propia) es gasto_real.
-export const transactions = sqliteTable("transactions", {
-  id: integer("id").primaryKey({ autoIncrement: true }),
-  fecha: text("fecha").notNull(),
-  monto: real("monto").notNull(),
-  moneda: text("moneda").notNull(),
-  cuentaId: integer("cuenta_id").notNull().references(() => accounts.id),
-  categoriaId: integer("categoria_id").references(() => categories.id), // null en transferencias
-  tipo: text("tipo").notNull(), // "gasto_real" | "ingreso_real" | "transferencia_interna"
-  descripcion: text("descripcion"),
-  cuentaDestinoId: integer("cuenta_destino_id").references(() => accounts.id), // solo transferencia_interna
-});
+export const transactions = sqliteTable(
+  "transactions",
+  {
+    id: integer("id").primaryKey({ autoIncrement: true }),
+    fecha: text("fecha").notNull(),
+    monto: real("monto").notNull(),
+    moneda: text("moneda").notNull(),
+    cuentaId: integer("cuenta_id").notNull().references(() => accounts.id),
+    categoriaId: integer("categoria_id").references(() => categories.id), // null en transferencias
+    tipo: text("tipo").notNull(), // "gasto_real" | "ingreso_real" | "transferencia_interna"
+    descripcion: text("descripcion"),
+    cuentaDestinoId: integer("cuenta_destino_id").references(() => accounts.id), // solo transferencia_interna
+    // Id del movimiento en la fuente externa (ej. referenceId de MP). null en
+    // altas manuales. Único por cuenta → reimportar el mismo CSV no duplica.
+    // (SQLite trata los NULL como distintos, así que las altas manuales no chocan.)
+    externalId: text("external_id"),
+  },
+  (t) => [
+    uniqueIndex("ux_transactions_cuenta_external").on(t.cuentaId, t.externalId),
+  ]
+);
 
 // Responde "¿cómo rinden las inversiones?": valor de una posición (activo)
 // en una cuenta, en un momento dado. Ya normalizado a USD para no depender

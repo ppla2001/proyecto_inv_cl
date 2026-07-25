@@ -1,8 +1,9 @@
-import { NextRequest, NextResponse } from "next/server";
+import { NextResponse } from "next/server";
 import { z } from "zod";
 import { desc, eq } from "drizzle-orm";
 import { db } from "@/db";
 import { holdingsMovements } from "@/db/schema";
+import { ApiError, readJson, route } from "@/lib/http";
 
 const TIPOS = ["compra", "venta"] as const;
 
@@ -18,31 +19,21 @@ const movementInput = z.object({
   fuente: z.string().min(1),
 });
 
-export async function GET(request: NextRequest) {
-  const cuentaId = request.nextUrl.searchParams.get("cuentaId");
-
+export const GET = route<unknown>("GET /holdings-movements", async (request) => {
+  const cuentaId = new URL(request.url).searchParams.get("cuentaId");
   const rows = await db
     .select()
     .from(holdingsMovements)
     .where(cuentaId ? eq(holdingsMovements.cuentaId, Number(cuentaId)) : undefined)
     .orderBy(desc(holdingsMovements.fecha));
-
   return NextResponse.json(rows);
-}
+});
 
-export async function POST(request: Request) {
-  const body = await request.json();
-  const parsed = movementInput.safeParse(body);
+export const POST = route<unknown>("POST /holdings-movements", async (request) => {
+  const parsed = movementInput.safeParse(await readJson(request));
   if (!parsed.success) {
-    return NextResponse.json(
-      { error: parsed.error.flatten() },
-      { status: 400 }
-    );
+    throw new ApiError(400, "Payload inválido.", parsed.error.flatten());
   }
-
-  const [row] = await db
-    .insert(holdingsMovements)
-    .values(parsed.data)
-    .returning();
+  const [row] = await db.insert(holdingsMovements).values(parsed.data).returning();
   return NextResponse.json(row, { status: 201 });
-}
+});

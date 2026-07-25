@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { z } from "zod";
 import { db } from "@/db";
 import { accounts } from "@/db/schema";
+import { ApiError, readJson, route } from "@/lib/http";
 
 const PLATAFORMAS = ["mercado_pago", "binance", "metamask", "balanz"] as const;
 const TIPOS_CUENTA = ["activo", "pasivo"] as const;
@@ -23,21 +24,16 @@ const accountInput = z.object({
   identificadorExterno: z.string().optional(),
 });
 
-export async function GET() {
+export const GET = route<unknown>("GET /accounts", async () => {
   const rows = await db.select().from(accounts);
   return NextResponse.json(rows);
-}
+});
 
-export async function POST(request: Request) {
-  const body = await request.json();
-  const parsed = accountInput.safeParse(body);
+export const POST = route<unknown>("POST /accounts", async (request) => {
+  const parsed = accountInput.safeParse(await readJson(request));
   if (!parsed.success) {
-    return NextResponse.json(
-      { error: parsed.error.flatten() },
-      { status: 400 }
-    );
+    throw new ApiError(400, "Payload inválido.", parsed.error.flatten());
   }
-
   const [row] = await db.insert(accounts).values(parsed.data).returning();
   return NextResponse.json(row, { status: 201 });
-}
+});

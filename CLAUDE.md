@@ -38,3 +38,11 @@ Ver `PLAN.md` — etapas E1 a E14, cada una con criterio verificable. Estado act
 - Código y comentarios en inglés; UI y docs en español.
 - Commits chicos y descriptivos en español.
 - Tests para lógica pura (conversión de moneda, parsers OCR, conciliador).
+- **Trazabilidad:** cada etapa deja una entrada en `CHANGELOG.md`; el plan hacia adelante en `PLAN.md`.
+
+## Robustez y manejo de errores (desde E6.5)
+
+- **API:** rutas envueltas en un wrapper (`src/lib/http.ts`) que atrapa excepciones, loguea con contexto y devuelve un shape uniforme `{ error: { message, details? } }`. El body se parsea con un `readJson` seguro (JSON inválido → 400, no 500 opaco). Validación de forma con `zod`; validación de existencia de FKs antes de escribir.
+- **Integridad:** `foreign_keys` ON en SQLite. Import idempotente por `transactions.external_id` (unique por `(cuentaId, external_id)`): reimportar el mismo CSV no duplica. El PATCH de transacciones valida las mismas reglas de negocio que el POST sobre el estado resultante.
+- **Cliente:** todo fetch pasa por `apiFetch` (`src/lib/api-client.ts`), que chequea `res.ok` y surface el error; las pantallas críticas (dashboard, import) muestran estado de error en vez de crashear o fallar en silencio.
+- **Importadores CSV:** diseñados genéricos (parser puro + candidatas + pantalla de revisión + confirm bulk), reutilizables para MP/Balanz/Binance, no atados a una fuente.

@@ -1,6 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useState } from "react";
+import { apiFetch, mensajeDeError } from "@/lib/api-client";
 
 type Monto = { ars: number; usd: number };
 type Account = { id: number; nombre: string; grupo: string };
@@ -24,6 +25,7 @@ type Dashboard = {
   movimientos: Movimiento[];
   cuentas: Account[];
   categorias: Category[];
+  avisos: string[];
 };
 
 const TIPOS = ["gasto_real", "ingreso_real", "transferencia_interna"] as const;
@@ -36,10 +38,15 @@ export default function DashboardPage() {
   const [mes, setMes] = useState("2026-06");
   const [moneda, setMoneda] = useState<"ars" | "usd">("ars");
   const [data, setData] = useState<Dashboard | null>(null);
+  const [error, setError] = useState<string | null>(null);
 
   const cargar = useCallback(async () => {
-    const res = await fetch(`/api/dashboard?mes=${mes}`);
-    setData(await res.json());
+    setError(null);
+    try {
+      setData(await apiFetch<Dashboard>(`/api/dashboard?mes=${mes}`));
+    } catch (e) {
+      setError(mensajeDeError(e));
+    }
   }, [mes]);
 
   useEffect(() => {
@@ -53,12 +60,18 @@ export default function DashboardPage() {
   }
 
   async function recategorizar(id: number, patch: Record<string, unknown>) {
-    await fetch(`/api/transactions/${id}`, {
-      method: "PATCH",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(patch),
-    });
-    await cargar();
+    setError(null);
+    try {
+      await apiFetch(`/api/transactions/${id}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(patch),
+      });
+      await cargar();
+    } catch (e) {
+      setError(mensajeDeError(e));
+      await cargar(); // revertir el select al estado real
+    }
   }
 
   const nombreCuenta = (id: number | null) =>
@@ -82,10 +95,21 @@ export default function DashboardPage() {
         </label>
       </div>
 
+      {error && (
+        <p style={{ color: "red", border: "1px solid red", padding: "0.5rem", borderRadius: 4 }}>
+          {error}
+        </p>
+      )}
+
       {!data ? (
-        <p>Cargando…</p>
+        <p>{error ? "No se pudo cargar." : "Cargando…"}</p>
       ) : (
         <>
+          {data.avisos?.map((a, i) => (
+            <p key={i} style={{ color: "#8a6d00", background: "#fff8e1", padding: "0.5rem", borderRadius: 4 }}>
+              ⚠ {a}
+            </p>
+          ))}
           <section style={{ display: "flex", gap: "1rem", marginBottom: "2rem" }}>
             <Tarjeta titulo="Ingresos" valor={fmt(data.resumen.ingresos)} color="#0a7d28" />
             <Tarjeta titulo="Gastos" valor={fmt(data.resumen.gastos)} color="#b00020" />

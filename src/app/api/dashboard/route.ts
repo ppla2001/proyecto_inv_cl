@@ -1,8 +1,9 @@
-import { NextRequest, NextResponse } from "next/server";
+import { NextResponse } from "next/server";
 import { and, gte, lte } from "drizzle-orm";
 import { db } from "@/db";
 import { accounts, categories, transactions } from "@/db/schema";
 import { getMepRateForDate } from "@/lib/mep";
+import { ApiError, route } from "@/lib/http";
 
 // Resumen mensual del flujo de plata (gastos / ingresos / ahorros) con cada
 // monto convertido a USD (server-side, porque la conversión necesita la tabla
@@ -19,17 +20,16 @@ function sumar(a: Monto, b: Monto): Monto {
   return { ars: a.ars + b.ars, usd: a.usd + b.usd };
 }
 
-export async function GET(request: NextRequest) {
-  const mes = request.nextUrl.searchParams.get("mes"); // yyyy-mm
+export const GET = route<unknown>("GET /dashboard", async (request) => {
+  const mes = new URL(request.url).searchParams.get("mes"); // yyyy-mm
   if (!mes || !/^\d{4}-\d{2}$/.test(mes)) {
-    return NextResponse.json(
-      { error: "Falta el parámetro 'mes' (yyyy-mm)." },
-      { status: 400 }
-    );
+    throw new ApiError(400, "Falta el parámetro 'mes' (yyyy-mm).");
   }
 
+  const [anio, m] = mes.split("-").map(Number);
+  const ultimoDia = new Date(Date.UTC(anio, m, 0)).getUTCDate(); // día 0 del mes siguiente = último del actual
   const desde = `${mes}-01`;
-  const hasta = `${mes}-31`;
+  const hasta = `${mes}-${String(ultimoDia).padStart(2, "0")}`;
 
   const [movs, cuentas, cats] = await Promise.all([
     db
@@ -52,8 +52,10 @@ export async function GET(request: NextRequest) {
     return rateCache.get(fecha)!;
   }
 
+  const fechasSinCotizacion = new Set<string>();
   async function aMonto(monto: number, moneda: string, fecha: string): Promise<Monto> {
     const venta = await ventaEnFecha(fecha);
+    if (venta == null) fechasSinCotizacion.add(fecha); // conversión incompleta
     if (moneda === "USD") {
       return { usd: monto, ars: venta ? monto * venta : 0 };
     }
@@ -97,6 +99,16 @@ export async function GET(request: NextRequest) {
     monto,
   }));
 
+  const avisos: string[] = [];
+  if (fechasSinCotizacion.size > 0) {
+    const fechas = [...fechasSinCotizacion].sort();
+    avisos.push(
+      `Sin cotización para ${fechas.length} fecha(s) (${fechas.slice(0, 5).join(", ")}${
+        fechas.length > 5 ? "…" : ""
+      }); esos montos no se convirtieron a USD.`
+    );
+  }
+
   return NextResponse.json({
     mes,
     resumen: { gastos, ingresos, ahorros },
@@ -104,5 +116,6 @@ export async function GET(request: NextRequest) {
     movimientos,
     cuentas,
     categorias: cats,
+    avisos,
   });
-}
+});

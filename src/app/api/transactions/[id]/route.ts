@@ -1,35 +1,34 @@
 import { NextResponse } from "next/server";
-import { z } from "zod";
 import { eq } from "drizzle-orm";
 import { db } from "@/db";
 import { transactions } from "@/db/schema";
+import { ApiError, readJson, route } from "@/lib/http";
+import { assertReglasTransaccion, transactionPatch } from "@/lib/transactions";
 
-const TIPOS = ["gasto_real", "ingreso_real", "transferencia_interna"] as const;
+type Ctx = { params: Promise<{ id: string }> };
 
-const transactionPatch = z.object({
-  fecha: z.string().min(1).optional(),
-  monto: z.number().positive().optional(),
-  moneda: z.string().min(1).optional(),
-  cuentaId: z.number().int().optional(),
-  categoriaId: z.number().int().nullable().optional(),
-  tipo: z.enum(TIPOS).optional(),
-  descripcion: z.string().nullable().optional(),
-  cuentaDestinoId: z.number().int().nullable().optional(),
-});
-
-export async function PATCH(
-  request: Request,
-  { params }: { params: Promise<{ id: string }> }
-) {
+export const PATCH = route<Ctx>("PATCH /transactions/:id", async (request, { params }) => {
   const { id } = await params;
-  const body = await request.json();
-  const parsed = transactionPatch.safeParse(body);
+  const parsed = transactionPatch.safeParse(await readJson(request));
   if (!parsed.success) {
-    return NextResponse.json(
-      { error: parsed.error.flatten() },
-      { status: 400 }
-    );
+    throw new ApiError(400, "Payload inválido.", parsed.error.flatten());
   }
+
+  const actual = await db
+    .select()
+    .from(transactions)
+    .where(eq(transactions.id, Number(id)))
+    .get();
+  if (!actual) {
+    throw new ApiError(404, "Transacción no encontrada.");
+  }
+
+  // Validar las reglas de negocio sobre el ESTADO RESULTANTE (actual + patch),
+  // no solo sobre el patch: así no se puede dejar la transacción en un estado
+  // inválido (ej. cambiar tipo a transferencia_interna sin destino desde el
+  // dashboard).
+  const resultante = { ...actual, ...parsed.data };
+  assertReglasTransaccion(resultante);
 
   const [row] = await db
     .update(transactions)
@@ -37,16 +36,10 @@ export async function PATCH(
     .where(eq(transactions.id, Number(id)))
     .returning();
 
-  if (!row) {
-    return NextResponse.json({ error: "No encontrada" }, { status: 404 });
-  }
   return NextResponse.json(row);
-}
+});
 
-export async function DELETE(
-  _request: Request,
-  { params }: { params: Promise<{ id: string }> }
-) {
+export const DELETE = route<Ctx>("DELETE /transactions/:id", async (_request, { params }) => {
   const { id } = await params;
   const [row] = await db
     .delete(transactions)
@@ -54,7 +47,7 @@ export async function DELETE(
     .returning();
 
   if (!row) {
-    return NextResponse.json({ error: "No encontrada" }, { status: 404 });
+    throw new ApiError(404, "Transacción no encontrada.");
   }
   return NextResponse.json({ ok: true });
-}
+});

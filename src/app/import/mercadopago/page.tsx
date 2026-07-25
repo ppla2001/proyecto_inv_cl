@@ -15,6 +15,7 @@ type Candidate = {
   categoriaSugerida?: string;
   esPagoTarjeta: boolean;
   esAhorro: boolean;
+  esAhorroSalida: boolean;
   ignorarPorDefecto: boolean;
 };
 
@@ -26,6 +27,12 @@ type Row = Candidate & {
 };
 
 const TIPOS = ["gasto_real", "ingreso_real", "transferencia_interna"] as const;
+
+// Categorías que el parser puede sugerir, con su tipo, para autocrearlas si
+// faltan (ej. tras un arranque limpio).
+const TIPO_CATEGORIA_SUGERIDA: Record<string, "gasto" | "ingreso"> = {
+  "Rendimientos MP": "ingreso",
+};
 
 export default function ImportMpPage() {
   const [accounts, setAccounts] = useState<Account[]>([]);
@@ -48,10 +55,31 @@ export default function ImportMpPage() {
     });
   }, []);
 
-  function matchCategoria(nombre?: string): string {
+  function matchCategoria(nombre: string | undefined, lista: Category[]): string {
     if (!nombre) return "";
-    const found = categories.find((c) => c.nombre === nombre);
+    const found = lista.find((c) => c.nombre === nombre);
     return found ? String(found.id) : "";
+  }
+
+  // Crea las categorías sugeridas por el parser que todavía no existan, y
+  // devuelve la lista actualizada de categorías.
+  async function asegurarCategoriasSugeridas(candidates: Candidate[]): Promise<Category[]> {
+    const sugeridas = new Set(
+      candidates.map((c) => c.categoriaSugerida).filter((n): n is string => !!n)
+    );
+    const faltantes = [...sugeridas].filter((n) => !categories.some((c) => c.nombre === n));
+    if (faltantes.length === 0) return categories;
+
+    for (const nombre of faltantes) {
+      await apiFetch("/api/categories", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ nombre, tipo: TIPO_CATEGORIA_SUGERIDA[nombre] ?? "gasto" }),
+      });
+    }
+    const actualizadas = await apiFetch<Category[]>("/api/categories");
+    setCategories(actualizadas);
+    return actualizadas;
   }
 
   function tarjetaPasivo(): string {
@@ -91,12 +119,13 @@ export default function ImportMpPage() {
           }),
         }
       );
+      const cats = await asegurarCategoriasSugeridas(candidates);
       setRows(
         candidates.map((c) => ({
           ...c,
           incluir: !c.ignorarPorDefecto,
           tipo: c.tipoSugerido,
-          categoriaId: matchCategoria(c.categoriaSugerida),
+          categoriaId: matchCategoria(c.categoriaSugerida, cats),
           cuentaDestinoId: destinoSugerido(c),
         }))
       );
@@ -117,25 +146,38 @@ export default function ImportMpPage() {
       return;
     }
 
+    const origen = Number(cuentaOrigenId);
     const filas = rows
       .filter((r) => r.incluir)
-      .map((r) => ({
-        fecha: r.fecha,
-        monto: r.monto,
-        moneda,
-        cuentaId: Number(cuentaOrigenId),
-        categoriaId:
-          r.tipo !== "transferencia_interna" && r.categoriaId
-            ? Number(r.categoriaId)
-            : undefined,
-        tipo: r.tipo,
-        descripcion: r.descripcion,
-        cuentaDestinoId:
+      .map((r) => {
+        const destino =
           r.tipo === "transferencia_interna" && r.cuentaDestinoId
             ? Number(r.cuentaDestinoId)
-            : undefined,
-        externalId: r.referenceId, // dedupe: reimportar el mismo CSV no duplica
-      }));
+            : undefined;
+
+        // Un retiro de Ahorro va Ahorro -> corriente: se invierten las patas
+        // (la cuenta de ahorro es el origen, la corriente el destino). El
+        // resto de las transferencias van desde la cuenta de MP hacia el destino.
+        const [cuentaId, cuentaDestinoId] =
+          r.esAhorroSalida && destino ? [destino, origen] : [origen, destino];
+
+        return {
+          fecha: r.fecha,
+          monto: r.monto,
+          moneda,
+          cuentaId,
+          categoriaId:
+            r.tipo !== "transferencia_interna" && r.categoriaId
+              ? Number(r.categoriaId)
+              : undefined,
+          tipo: r.tipo,
+          descripcion: r.descripcion,
+          cuentaDestinoId,
+          // dedupe: reimportar el mismo CSV no duplica. Vacío -> null (para no
+          // colisionar varias filas sin id en el índice unique).
+          externalId: r.referenceId?.trim() || null,
+        };
+      });
 
     try {
       const res = await apiFetch<{ total: number; insertadas: number; duplicadas: number }>(

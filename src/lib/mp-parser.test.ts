@@ -76,12 +76,14 @@ describe("parseMpStatement", () => {
     expect(p.esPagoTarjeta).toBe(true);
   });
 
-  it("movimientos de ahorro -> transferencia_interna marcada como ahorro (no ignorar)", () => {
+  it("ahorro -> transferencia_interna con dirección (reservado entra, retirado sale)", () => {
     const reservado = candidatas.find((c) => c.descripcion.includes("reservado"))!;
     const retirado = candidatas.find((c) => c.descripcion.includes("retirado"))!;
     expect(reservado.tipoSugerido).toBe("transferencia_interna");
     expect(reservado.esAhorro).toBe(true);
+    expect(reservado.esAhorroSalida).toBe(false); // entra a Ahorro
     expect(reservado.ignorarPorDefecto).toBe(false);
     expect(retirado.esAhorro).toBe(true);
+    expect(retirado.esAhorroSalida).toBe(true); // sale de Ahorro
   });
 });

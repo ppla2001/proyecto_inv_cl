@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import { apiFetch, mensajeDeError } from "@/lib/api-client";
 
 type Category = {
   id: number;
@@ -17,8 +18,11 @@ export default function CategoriesPage() {
   const [error, setError] = useState<string | null>(null);
 
   async function cargarCategorias() {
-    const res = await fetch("/api/categories");
-    setCategories(await res.json());
+    try {
+      setCategories(await apiFetch<Category[]>("/api/categories"));
+    } catch (e) {
+      setError(mensajeDeError(e));
+    }
   }
 
   useEffect(() => {
@@ -28,14 +32,14 @@ export default function CategoriesPage() {
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
     setError(null);
-    const res = await fetch("/api/categories", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ nombre, tipo }),
-    });
-    if (!res.ok) {
-      const data = await res.json();
-      setError(JSON.stringify(data.error));
+    try {
+      await apiFetch("/api/categories", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ nombre, tipo }),
+      });
+    } catch (e) {
+      setError(mensajeDeError(e));
       return;
     }
     setNombre("");

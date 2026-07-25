@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import { apiFetch, mensajeDeError } from "@/lib/api-client";
 
 type Account = { id: number; nombre: string };
 type Movement = {
@@ -34,12 +35,16 @@ export default function HoldingsMovementsPage() {
   const [error, setError] = useState<string | null>(null);
 
   async function cargarTodo() {
-    const [m, a] = await Promise.all([
-      fetch("/api/holdings-movements").then((r) => r.json()),
-      fetch("/api/accounts").then((r) => r.json()),
-    ]);
-    setMovements(m);
-    setAccounts(a);
+    try {
+      const [m, a] = await Promise.all([
+        apiFetch<Movement[]>("/api/holdings-movements"),
+        apiFetch<Account[]>("/api/accounts"),
+      ]);
+      setMovements(m);
+      setAccounts(a);
+    } catch (e) {
+      setError(mensajeDeError(e));
+    }
   }
 
   useEffect(() => {
@@ -49,24 +54,24 @@ export default function HoldingsMovementsPage() {
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
     setError(null);
-    const res = await fetch("/api/holdings-movements", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        cuentaId: Number(cuentaId),
-        fecha,
-        activo,
-        tipo,
-        cantidad: Number(cantidad),
-        precioUnitario: Number(precioUnitario),
-        moneda,
-        valorUsd: Number(valorUsd),
-        fuente,
-      }),
-    });
-    if (!res.ok) {
-      const data = await res.json();
-      setError(JSON.stringify(data.error));
+    try {
+      await apiFetch("/api/holdings-movements", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          cuentaId: Number(cuentaId),
+          fecha,
+          activo,
+          tipo,
+          cantidad: Number(cantidad),
+          precioUnitario: Number(precioUnitario),
+          moneda,
+          valorUsd: Number(valorUsd),
+          fuente,
+        }),
+      });
+    } catch (e) {
+      setError(mensajeDeError(e));
       return;
     }
     setActivo("");

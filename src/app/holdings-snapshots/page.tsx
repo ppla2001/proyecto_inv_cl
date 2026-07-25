@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import { apiFetch, mensajeDeError } from "@/lib/api-client";
 
 type Account = { id: number; nombre: string };
 type Snapshot = {
@@ -26,12 +27,16 @@ export default function HoldingsSnapshotsPage() {
   const [error, setError] = useState<string | null>(null);
 
   async function cargarTodo() {
-    const [s, a] = await Promise.all([
-      fetch("/api/holdings-snapshots").then((r) => r.json()),
-      fetch("/api/accounts").then((r) => r.json()),
-    ]);
-    setSnapshots(s);
-    setAccounts(a);
+    try {
+      const [s, a] = await Promise.all([
+        apiFetch<Snapshot[]>("/api/holdings-snapshots"),
+        apiFetch<Account[]>("/api/accounts"),
+      ]);
+      setSnapshots(s);
+      setAccounts(a);
+    } catch (e) {
+      setError(mensajeDeError(e));
+    }
   }
 
   useEffect(() => {
@@ -41,21 +46,21 @@ export default function HoldingsSnapshotsPage() {
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
     setError(null);
-    const res = await fetch("/api/holdings-snapshots", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        cuentaId: Number(cuentaId),
-        fecha,
-        activo,
-        cantidad: Number(cantidad),
-        valorUsd: Number(valorUsd),
-        fuente,
-      }),
-    });
-    if (!res.ok) {
-      const data = await res.json();
-      setError(JSON.stringify(data.error));
+    try {
+      await apiFetch("/api/holdings-snapshots", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          cuentaId: Number(cuentaId),
+          fecha,
+          activo,
+          cantidad: Number(cantidad),
+          valorUsd: Number(valorUsd),
+          fuente,
+        }),
+      });
+    } catch (e) {
+      setError(mensajeDeError(e));
       return;
     }
     setActivo("");

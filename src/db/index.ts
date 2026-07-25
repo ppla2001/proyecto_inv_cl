@@ -4,5 +4,6 @@ import * as schema from "./schema";
 
 const sqlite = new Database(process.env.DATABASE_PATH ?? "local.db");
 sqlite.pragma("journal_mode = WAL");
+sqlite.pragma("foreign_keys = ON"); // SQLite lo trae apagado por default
 
 export const db = drizzle(sqlite, { schema });

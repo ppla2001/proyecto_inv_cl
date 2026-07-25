@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import { apiFetch, ApiClientError, mensajeDeError } from "@/lib/api-client";
 
 type Account = { id: number; nombre: string; tipoCuenta: string; grupo: string };
 type Category = { id: number; nombre: string; tipo: string };
@@ -78,29 +79,30 @@ export default function ImportMpPage() {
   async function parsear() {
     setError(null);
     setResultado(null);
-    const res = await fetch("/api/import/mercadopago", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        csv: csvText,
-        selfNames: selfNames.split(",").map((s) => s.trim()).filter(Boolean),
-      }),
-    });
-    if (!res.ok) {
-      const data = await res.json();
-      setError(JSON.stringify(data.error));
-      return;
+    try {
+      const { candidates } = await apiFetch<{ candidates: Candidate[] }>(
+        "/api/import/mercadopago",
+        {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            csv: csvText,
+            selfNames: selfNames.split(",").map((s) => s.trim()).filter(Boolean),
+          }),
+        }
+      );
+      setRows(
+        candidates.map((c) => ({
+          ...c,
+          incluir: !c.ignorarPorDefecto,
+          tipo: c.tipoSugerido,
+          categoriaId: matchCategoria(c.categoriaSugerida),
+          cuentaDestinoId: destinoSugerido(c),
+        }))
+      );
+    } catch (e) {
+      setError(mensajeDeError(e));
     }
-    const { candidates }: { candidates: Candidate[] } = await res.json();
-    setRows(
-      candidates.map((c) => ({
-        ...c,
-        incluir: !c.ignorarPorDefecto,
-        tipo: c.tipoSugerido,
-        categoriaId: matchCategoria(c.categoriaSugerida),
-        cuentaDestinoId: destinoSugerido(c),
-      }))
-    );
   }
 
   function updateRow(i: number, patch: Partial<Row>) {
@@ -109,16 +111,15 @@ export default function ImportMpPage() {
 
   async function confirmar() {
     setError(null);
+    setResultado(null);
     if (!cuentaOrigenId) {
       setError("Elegí la cuenta de Mercado Pago de origen.");
       return;
     }
-    const aImportar = rows.filter((r) => r.incluir);
-    let ok = 0;
-    let fallidas = 0;
 
-    for (const r of aImportar) {
-      const payload = {
+    const filas = rows
+      .filter((r) => r.incluir)
+      .map((r) => ({
         fecha: r.fecha,
         monto: r.monto,
         moneda,
@@ -133,18 +134,30 @@ export default function ImportMpPage() {
           r.tipo === "transferencia_interna" && r.cuentaDestinoId
             ? Number(r.cuentaDestinoId)
             : undefined,
-      };
-      const res = await fetch("/api/transactions", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(payload),
-      });
-      if (res.ok) ok++;
-      else fallidas++;
-    }
+        externalId: r.referenceId, // dedupe: reimportar el mismo CSV no duplica
+      }));
 
-    setResultado(`Importadas: ${ok}. Fallidas: ${fallidas}.`);
-    if (fallidas === 0) setRows([]);
+    try {
+      const res = await apiFetch<{ total: number; insertadas: number; duplicadas: number }>(
+        "/api/import/confirm",
+        {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ rows: filas }),
+        }
+      );
+      setResultado(
+        `Importadas: ${res.insertadas}. Duplicadas (ya existían, se saltaron): ${res.duplicadas}.`
+      );
+      setRows([]);
+    } catch (e) {
+      // Si hay filas inválidas, el server no importó nada y manda el detalle.
+      const detalle =
+        e instanceof ApiClientError && e.details
+          ? ` Detalle: ${JSON.stringify(e.details)}`
+          : "";
+      setError(`${mensajeDeError(e)}${detalle}`);
+    }
   }
 
   const incluidas = rows.filter((r) => r.incluir).length;

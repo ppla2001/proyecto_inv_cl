@@ -2,10 +2,14 @@
 // on-chain (Etherscan) y les pone precio USD (CoinGecko). La parte de valuación
 // es pura y testeable; la de fetch coordina las fuentes.
 
-import { CHAINS } from "@/lib/chains";
+import { CHAINS, chainPorRed } from "@/lib/chains";
 import {
+  balanceNativo,
+  balanceToken,
+  formatUnits,
   holdingsOnChain,
   nftsPoseidos,
+  throttle,
   type HoldingOnChain,
   type NftPoseido,
 } from "@/lib/etherscan";
@@ -16,6 +20,7 @@ export type HoldingValuado = {
   activo: string;
   nombre: string;
   contractAddress: string | null;
+  decimals: number;
   cantidad: number;
   precioUsd: number | null; // null = no se pudo valuar
   valorUsd: number; // 0 si sin precio
@@ -42,6 +47,7 @@ export function valuarHoldings(
       activo: h.activo,
       nombre: h.nombre,
       contractAddress: h.contractAddress,
+      decimals: h.decimals,
       cantidad: h.cantidad,
       precioUsd: precio,
       valorUsd: sinPrecio ? 0 : h.cantidad * (precio as number),
@@ -103,4 +109,72 @@ export async function descubrir(
   }
 
   return { tokens, nfts };
+}
+
+export type TrackedToken = {
+  red: string;
+  activo: string;
+  nombre: string | null;
+  contractAddress: string | null; // null = token nativo
+  decimals: number | null;
+};
+
+// REVALUACIÓN rápida: solo los tokens de la watchlist (sin re-descubrir con
+// tokentx). Consulta el balance puntual de cada uno y le pone precio. Mucho más
+// rápido que `descubrir`: es lo que corre el botón "Actualizar".
+export async function revaluarTokens(
+  direccionesPorRed: Record<string, string>,
+  tokens: TrackedToken[]
+): Promise<HoldingValuado[]> {
+  const preciosNat = await preciosNativos(CHAINS.map((c) => c.coingeckoNativeId));
+
+  const porRed = new Map<string, TrackedToken[]>();
+  for (const t of tokens) {
+    const arr = porRed.get(t.red) ?? [];
+    arr.push(t);
+    porRed.set(t.red, arr);
+  }
+
+  const resultado: HoldingValuado[] = [];
+  for (const [red, toks] of porRed) {
+    const chain = chainPorRed(red);
+    const address = direccionesPorRed[red]?.trim();
+    if (!chain || !address) continue;
+
+    const holdings: HoldingOnChain[] = [];
+    const contratos: string[] = [];
+    for (const t of toks) {
+      await throttle();
+      if (t.contractAddress == null) {
+        const raw = await balanceNativo(chain.chainId, address);
+        holdings.push({
+          activo: t.activo,
+          nombre: t.nombre ?? t.activo,
+          contractAddress: null,
+          cantidad: formatUnits(raw, 18),
+          decimals: 18,
+        });
+      } else {
+        const dec = t.decimals ?? 18;
+        const raw = await balanceToken(chain.chainId, t.contractAddress, address);
+        holdings.push({
+          activo: t.activo,
+          nombre: t.nombre ?? t.activo,
+          contractAddress: t.contractAddress,
+          cantidad: formatUnits(raw, dec),
+          decimals: dec,
+        });
+        contratos.push(t.contractAddress);
+      }
+    }
+
+    let preciosTok = new Map<string, number>();
+    if (chain.coingeckoPlatform && contratos.length > 0) {
+      preciosTok = await preciosTokens(chain.coingeckoPlatform, contratos);
+    }
+    const precioNativo = preciosNat.get(chain.coingeckoNativeId) ?? null;
+    resultado.push(...valuarHoldings(red, holdings, precioNativo, preciosTok));
+  }
+
+  return resultado;
 }

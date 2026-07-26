@@ -79,7 +79,7 @@ export type HoldingOnChain = {
   decimals: number;
 };
 
-async function balanceNativo(chainId: number, address: string): Promise<string> {
+export async function balanceNativo(chainId: number, address: string): Promise<string> {
   return call<string>(chainId, {
     module: "account",
     action: "balance",
@@ -117,7 +117,7 @@ async function tokensDescubiertos(
   return [...porContrato.values()];
 }
 
-async function balanceToken(
+export async function balanceToken(
   chainId: number,
   contract: string,
   address: string
@@ -130,6 +130,9 @@ async function balanceToken(
     tag: "latest",
   });
 }
+
+// Delay entre llamadas, reutilizable para throttle desde otros módulos.
+export const throttle = (ms = 400) => sleep(ms);
 
 export type NftPoseido = {
   contractAddress: string;

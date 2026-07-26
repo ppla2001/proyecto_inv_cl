@@ -1,10 +1,11 @@
 import { NextResponse } from "next/server";
 import { z } from "zod";
-import { eq } from "drizzle-orm";
+import { and, eq } from "drizzle-orm";
 import { db } from "@/db";
-import { holdingsSnapshots, trackedAssets } from "@/db/schema";
+import { accounts, holdingsSnapshots, trackedAssets } from "@/db/schema";
 import { ApiError, readJson, route } from "@/lib/http";
 import { hoyIso } from "@/lib/periodo";
+import { serializeAddresses } from "@/lib/metamask-addresses";
 
 export const GET = route<unknown>("GET /metamask/tracked", async (request) => {
   const cuentaId = new URL(request.url).searchParams.get("cuentaId");
@@ -37,6 +38,9 @@ const input = z.object({
   cuentaId: z.number().int(),
   tokens: z.array(tokenSel).default([]),
   nfts: z.array(nftSel).default([]),
+  // Direcciones usadas, para persistirlas en la cuenta y poder re-sincronizar.
+  eoa: z.string().optional(),
+  abstract: z.string().optional(),
 });
 
 // Guarda la watchlist curada (reemplaza la de la cuenta) Y guarda un snapshot
@@ -47,10 +51,18 @@ export const POST = route<unknown>("POST /metamask/tracked", async (request) => 
   if (!parsed.success) {
     throw new ApiError(400, "Payload inválido.", parsed.error.flatten());
   }
-  const { cuentaId, tokens, nfts } = parsed.data;
+  const { cuentaId, tokens, nfts, eoa, abstract } = parsed.data;
   const fecha = hoyIso();
 
   const resultado = db.transaction((tx) => {
+    // Persistir las direcciones en la cuenta (para poder re-sincronizar).
+    if (eoa?.trim()) {
+      tx.update(accounts)
+        .set({ identificadorExterno: serializeAddresses({ eoa, abstract }) })
+        .where(eq(accounts.id, cuentaId))
+        .run();
+    }
+
     // Reemplazar la watchlist de la cuenta.
     tx.delete(trackedAssets).where(eq(trackedAssets.cuentaId, cuentaId)).run();
 
@@ -83,7 +95,17 @@ export const POST = route<unknown>("POST /metamask/tracked", async (request) => 
         .run();
     }
 
-    // Snapshot de los tokens seleccionados.
+    // Snapshot de los tokens seleccionados. Dedup por día: se borran los
+    // snapshots on-chain de hoy de esta cuenta antes de reinsertar.
+    tx.delete(holdingsSnapshots)
+      .where(
+        and(
+          eq(holdingsSnapshots.cuentaId, cuentaId),
+          eq(holdingsSnapshots.fecha, fecha),
+          eq(holdingsSnapshots.fuente, "onchain_metamask")
+        )
+      )
+      .run();
     let snaps = 0;
     for (const t of tokens) {
       tx.insert(holdingsSnapshots)

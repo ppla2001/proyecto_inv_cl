@@ -154,13 +154,17 @@ Primera pasada de diseño sobre el MVP, sin tocar APIs ni el modelo:
 Modal de edición de cuentas + botones compactos; cotización con compra/venta/promedio; date picker con presets + calendario de rango.
 **Verificable:** Editar cuenta abre modal; en USD se ven compra/venta y se puede elegir el precio; el período se elige como en ClickUp.
 
-### E7 — Integración Binance (API)
-API key de solo lectura (`.env.local`). Trae balances actuales, historial de operaciones, depósitos y retiros. Depósitos/retiros que cruzan hacia otra cuenta propia alimentan `transactions`; compras/ventas de cripto dentro de la plataforma alimentan `holdings_movements`; balances actuales alimentan `holdings_snapshots`.
-**Verificable:** holdings y movimientos reales de Binance reflejados en la base.
+### E7 — Integración MetaMask (on-chain) ✅ — adelantada 25-07-2026
+**Decisión (25-07-2026):** se confirma la dirección "MetaMask primero por API": MetaMask es la única integración por API en esta primera versión; Binance y Balanz quedan por CSV (ver E8). MetaMask es la más simple: address pública (dato no sensible, va en `accounts.identificador_externo`) + API key gratis de Etherscan en `.env.local`.
 
-### E8 — Integración MetaMask (on-chain)
-Etherscan API (o RPC público) con la dirección pública de la wallet. Balance actual + historial de transacciones on-chain. Curva histórica se reconstruye con `holdings_snapshots` propios desde que arranca el tracking (no se paga el histórico de Etherscan PRO).
-**Verificable:** holdings de MetaMask valuados en USD/ARS a fecha de hoy, snapshot guardado.
+Etherscan API (free tier) para leer, de una dirección pública: balance de ETH + balances de tokens ERC-20 (se descubren desde el historial `tokentx` y se consulta el balance por contrato). Precios USD vía CoinGecko (`/simple/price` para ETH, `/simple/token_price/ethereum?contract_addresses=` para tokens — gratis, sin key). Cada activo se guarda como `holdings_snapshots` (activo, cantidad, valor_usd). La curva histórica se reconstruye con esos snapshots propios desde que arranca el tracking (el balance histórico en fecha pasada es función paga de Etherscan; no se paga).
+
+Primera versión acotada a **holdings actuales valuados** (el lado "¿cómo rinden las inversiones?"). El historial de transacciones on-chain → `transactions` queda para después (gas, internal txs, más complejo). Flujo: pantalla que trae los holdings actuales de la wallet, los muestra, y con un botón guarda el snapshot (dato objetivo on-chain; se previsualiza antes de guardar).
+**Verificable:** holdings reales de MetaMask valuados en USD a fecha de hoy, snapshot guardado.
+
+### E8 — Importadores CSV: Binance y Balanz
+En vez de integrar Binance por API (diferido), y sumado a Balanz que nunca tuvo API, ambos entran por CSV/export con el mismo patrón genérico que MP (parser puro → candidatas → pantalla de revisión → confirm bulk, ya reutilizable desde E6.5). Binance permite exportar historial de operaciones/transacciones en CSV; Balanz según lo que exporte (si es solo PDF/imagen, cae al pipeline OCR de E11).
+**Verificable:** un export real de Binance importado y clasificado (holdings_movements / transactions según corresponda).
 
 ### E9 — Conciliador de transferencias
 Con datos reales entrando desde MP, Binance y MetaMask (E5–E8), aparea egresos/ingresos entre cuentas propias (monto ± tolerancia, ventana temporal) y sugiere clasificarlos como transferencia interna. Nada se autoclasifica sin confirmación.

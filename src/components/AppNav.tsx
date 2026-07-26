@@ -6,6 +6,7 @@ import { usePathname } from "next/navigation";
 const LINKS = [
   { href: "/", label: "Dashboard" },
   { href: "/import/mercadopago", label: "Importar" },
+  { href: "/metamask", label: "MetaMask" },
   { href: "/accounts", label: "Cuentas" },
   { href: "/categories", label: "Categorías" },
   { href: "/transactions", label: "Movimientos" },

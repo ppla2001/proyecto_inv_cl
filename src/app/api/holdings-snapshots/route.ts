@@ -9,6 +9,7 @@ const snapshotInput = z.object({
   cuentaId: z.number().int(),
   fecha: z.string().min(1),
   activo: z.string().min(1),
+  red: z.string().nullable().optional(),
   cantidad: z.number(),
   valorUsd: z.number(),
   fuente: z.string().min(1),

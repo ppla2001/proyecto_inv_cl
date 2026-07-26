@@ -2,6 +2,18 @@
 
 Registro cronológico de las etapas del proyecto, para seguir los cambios y avances. Una entrada por etapa (E*) o cambio transversal relevante. La planificación hacia adelante vive en `PLAN.md`; esto es el historial de lo hecho.
 
+## E7.2 — MetaMask: sync rápido + vista de holdings
+
+Uso diario del MetaMask ya configurado (pedido por Pedro, opción #3A: snapshot al sincronizar; el diario automático real llega en el deploy).
+
+- **Vista de holdings** (`/metamask` modo "ver"): al abrir muestra lo guardado — tokens valuados (último snapshot) + NFTs — sin re-escanear. Botón **"Reconfigurar watchlist"** para volver al escaneo/curación.
+- **Botón "Actualizar" (sync):** revalúa **solo la watchlist** (balance puntual de cada token + precio), sin re-descubrir con `tokentx`. ~4s vs ~47s del escaneo completo. `POST /api/metamask/sync`.
+- **Dedup de snapshots por día:** al sincronizar (y al guardar la watchlist) se borran los snapshots on-chain del día antes de reinsertar → una foto por día por cuenta. Arregla los duplicados previos.
+- **Persistencia de direcciones:** EOA + Abstract se guardan en la cuenta (`identificador_externo` como JSON, compat. hacia atrás) para poder re-sincronizar sin re-tipear. `decimals` de los tokens se guardan en la watchlist (necesario para formatear balances como USDC=6).
+- `GET /api/metamask/current` (último snapshot + NFTs de la watchlist).
+
+Verificado end-to-end: sync en 3.8s, dedup (de US$975 duplicado a US$487.70 real), vista con tokens + NFTs. **Pendiente:** floor price NFTs (OpenSea), movimientos on-chain, cron diario (deploy).
+
 ## E7.1 — MetaMask: watchlist con descubrimiento + curación
 
 Rediseño del flujo pedido por Pedro: al configurar una cuenta MetaMask, escanea TODAS las redes trayendo **todos los tokens y NFTs**, se curan una sola vez (se filtra el spam), y los elegidos quedan como "watchlist" de la cuenta.

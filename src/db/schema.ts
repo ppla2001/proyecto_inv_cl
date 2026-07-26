@@ -86,6 +86,10 @@ export const holdingsSnapshots = sqliteTable("holdings_snapshots", {
   cuentaId: integer("cuenta_id").notNull().references(() => accounts.id),
   fecha: text("fecha").notNull(),
   activo: text("activo").notNull(), // "ARS" | "USD" | "BTC" | "ETH" | ticker...
+  // Red / chain donde vive el activo (ej. "ethereum" | "arbitrum" | "base" |
+  // "polygon" | "abstract"). null para holdings sin red (ej. saldos MP/manuales).
+  // Permite distinguir USDC-en-Base de USDC-en-Arbitrum.
+  red: text("red"),
   cantidad: real("cantidad").notNull(),
   valorUsd: real("valor_usd").notNull(),
   fuente: text("fuente").notNull(), // "manual" | "api_binance" | "onchain_metamask" | ...

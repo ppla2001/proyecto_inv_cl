@@ -1,0 +1,1 @@
+ALTER TABLE `holdings_snapshots` ADD `red` text;

@@ -2,6 +2,20 @@
 
 Registro cronológico de las etapas del proyecto, para seguir los cambios y avances. Una entrada por etapa (E*) o cambio transversal relevante. La planificación hacia adelante vive en `PLAN.md`; esto es el historial de lo hecho.
 
+## E7 — Integración MetaMask (on-chain, multichain)
+
+Primera integración por API (dirección MetaMask-first: MP/Balanz/Binance quedan por CSV). Lee holdings on-chain de una dirección pública y los guarda como `holdings_snapshots`. Solo lectura.
+
+- **Fuente:** Etherscan V2 (un API key, multichain por `chainId`) para balances nativos + ERC-20; **CoinGecko** (gratis, sin key) para precios USD. Config de redes en `src/lib/chains.ts` (Ethereum, Arbitrum, Polygon, Abstract). **Base quedó afuera**: no está en el free tier de Etherscan (costo cero).
+- **Multi-dirección:** el EOA sirve para Ethereum/Arbitrum/Polygon; Abstract usa dirección aparte (native account abstraction). La pantalla toma ambas.
+- **Filtro de spam por precio:** los tokens scam (airdrops) no cotizan en CoinGecko → se marcan "sin precio" y no suman al patrimonio (en la wallet de prueba: 4 activos con precio vs 41 spam).
+- **Rate limit:** el free tier de Etherscan es ~2-3 req/s; el cliente espacia llamadas y reintenta con backoff.
+- **Schema:** `holdings_snapshots.red` (chain) para distinguir USDC-en-Arbitrum de USDC-en-otra-red.
+- **Flujo:** pantalla `/metamask` → traer holdings (preview valuado, sin escribir) → elegir qué guardar → snapshot. `POST /api/metamask/holdings` (preview) es solo lectura.
+- **Pendiente (E7b):** NFTs vía OpenSea (owned + floor price), cuando esté la API key.
+
+Verificado end-to-end con wallets reales: 4 holdings valuados (USDC 483.83 en Arbitrum + ETH/POL) = US$487.71, snapshot guardado. 8 tests nuevos (formatUnits, valuación/filtrado de spam).
+
 ## E6.7b — Pulido UX (modal cuentas, dólar, date picker)
 
 - Cuentas: botones chicos en la tabla; editar abre modal (ya no reusa el form de alta).

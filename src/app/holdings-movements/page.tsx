@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from "react";
 import { apiFetch, mensajeDeError } from "@/lib/api-client";
+import { fmtFechaCorta } from "@/lib/labels";
 
 type Account = { id: number; nombre: string };
 type Movement = {
@@ -81,21 +82,24 @@ export default function HoldingsMovementsPage() {
     await cargarTodo();
   }
 
-  const nombreCuenta = (id: number) =>
-    accounts.find((a) => a.id === id)?.nombre ?? id;
+  const nombreCuenta = (id: number) => accounts.find((a) => a.id === id)?.nombre ?? id;
 
   return (
-    <main style={{ fontFamily: "system-ui", padding: "2rem", maxWidth: 700 }}>
-      <h1>Holdings — movimientos</h1>
-      <p>Compras/ventas de un activo, para calcular costo base.</p>
+    <main className="app-main narrow">
+      <h1 className="page-title">Holdings — movimientos</h1>
+      <p className="page-lead">Compras y ventas de un activo, para calcular costo base.</p>
 
-      <form onSubmit={handleSubmit} style={{ display: "grid", gap: "0.5rem", marginBottom: "2rem" }}>
+      <form onSubmit={handleSubmit} className="card form-grid">
         <label>
           Cuenta
           <select value={cuentaId} onChange={(e) => setCuentaId(e.target.value)} required>
-            <option value="" disabled>Elegir cuenta</option>
+            <option value="" disabled>
+              Elegir cuenta
+            </option>
             {accounts.map((a) => (
-              <option key={a.id} value={a.id}>{a.nombre}</option>
+              <option key={a.id} value={a.id}>
+                {a.nombre}
+              </option>
             ))}
           </select>
         </label>
@@ -105,23 +109,42 @@ export default function HoldingsMovementsPage() {
         </label>
         <label>
           Activo
-          <input value={activo} onChange={(e) => setActivo(e.target.value)} placeholder="BTC, AAPL..." required />
+          <input
+            value={activo}
+            onChange={(e) => setActivo(e.target.value)}
+            placeholder="BTC, AAPL…"
+            required
+          />
         </label>
         <label>
           Tipo
           <select value={tipo} onChange={(e) => setTipo(e.target.value)}>
             {TIPOS.map((t) => (
-              <option key={t} value={t}>{t}</option>
+              <option key={t} value={t}>
+                {t}
+              </option>
             ))}
           </select>
         </label>
         <label>
           Cantidad
-          <input type="number" step="any" value={cantidad} onChange={(e) => setCantidad(e.target.value)} required />
+          <input
+            type="number"
+            step="any"
+            value={cantidad}
+            onChange={(e) => setCantidad(e.target.value)}
+            required
+          />
         </label>
         <label>
           Precio unitario
-          <input type="number" step="any" value={precioUnitario} onChange={(e) => setPrecioUnitario(e.target.value)} required />
+          <input
+            type="number"
+            step="any"
+            value={precioUnitario}
+            onChange={(e) => setPrecioUnitario(e.target.value)}
+            required
+          />
         </label>
         <label>
           Moneda del precio
@@ -129,42 +152,56 @@ export default function HoldingsMovementsPage() {
         </label>
         <label>
           Valor total (USD)
-          <input type="number" step="0.01" value={valorUsd} onChange={(e) => setValorUsd(e.target.value)} required />
+          <input
+            type="number"
+            step="0.01"
+            value={valorUsd}
+            onChange={(e) => setValorUsd(e.target.value)}
+            required
+          />
         </label>
         <label>
           Fuente
           <input value={fuente} onChange={(e) => setFuente(e.target.value)} required />
         </label>
-        <button type="submit">Agregar movimiento</button>
-        {error && <p style={{ color: "red" }}>{error}</p>}
+        <div className="btn-row">
+          <button type="submit" className="btn">
+            Agregar movimiento
+          </button>
+        </div>
+        {error && <div className="alert alert-error">{error}</div>}
       </form>
 
-      <table style={{ width: "100%", borderCollapse: "collapse" }}>
-        <thead>
-          <tr>
-            <th align="left">Fecha</th>
-            <th align="left">Cuenta</th>
-            <th align="left">Activo</th>
-            <th align="left">Tipo</th>
-            <th align="left">Cantidad</th>
-            <th align="left">Precio</th>
-            <th align="left">Valor USD</th>
-          </tr>
-        </thead>
-        <tbody>
-          {movements.map((m) => (
-            <tr key={m.id}>
-              <td>{m.fecha}</td>
-              <td>{nombreCuenta(m.cuentaId)}</td>
-              <td>{m.activo}</td>
-              <td>{m.tipo}</td>
-              <td>{m.cantidad}</td>
-              <td>{m.precioUnitario} {m.moneda}</td>
-              <td>{m.valorUsd}</td>
+      <div className="table-wrap">
+        <table className="data">
+          <thead>
+            <tr>
+              <th>Fecha</th>
+              <th>Cuenta</th>
+              <th>Activo</th>
+              <th>Tipo</th>
+              <th className="num">Cantidad</th>
+              <th className="num">Precio</th>
+              <th className="num">Valor USD</th>
             </tr>
-          ))}
-        </tbody>
-      </table>
+          </thead>
+          <tbody>
+            {movements.map((m) => (
+              <tr key={m.id}>
+                <td>{fmtFechaCorta(m.fecha)}</td>
+                <td>{nombreCuenta(m.cuentaId)}</td>
+                <td>{m.activo}</td>
+                <td>{m.tipo}</td>
+                <td className="num">{m.cantidad}</td>
+                <td className="num">
+                  {m.precioUnitario} {m.moneda}
+                </td>
+                <td className="num">{m.valorUsd}</td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
     </main>
   );
 }

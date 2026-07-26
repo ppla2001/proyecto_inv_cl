@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from "react";
 import { apiFetch, mensajeDeError } from "@/lib/api-client";
+import { fmtFechaCorta } from "@/lib/labels";
 
 type Account = { id: number; nombre: string };
 type Snapshot = {
@@ -69,21 +70,26 @@ export default function HoldingsSnapshotsPage() {
     await cargarTodo();
   }
 
-  const nombreCuenta = (id: number) =>
-    accounts.find((a) => a.id === id)?.nombre ?? id;
+  const nombreCuenta = (id: number) => accounts.find((a) => a.id === id)?.nombre ?? id;
 
   return (
-    <main style={{ fontFamily: "system-ui", padding: "2rem", maxWidth: 700 }}>
-      <h1>Holdings — snapshots</h1>
-      <p>Valor de una posición en un momento dado. "¿Cómo rinden las inversiones?".</p>
+    <main className="app-main narrow">
+      <h1 className="page-title">Holdings — snapshots</h1>
+      <p className="page-lead">
+        Valor de una posición en un momento dado. Responde &quot;¿cómo rinden las inversiones?&quot;.
+      </p>
 
-      <form onSubmit={handleSubmit} style={{ display: "grid", gap: "0.5rem", marginBottom: "2rem" }}>
+      <form onSubmit={handleSubmit} className="card form-grid">
         <label>
           Cuenta
           <select value={cuentaId} onChange={(e) => setCuentaId(e.target.value)} required>
-            <option value="" disabled>Elegir cuenta</option>
+            <option value="" disabled>
+              Elegir cuenta
+            </option>
             {accounts.map((a) => (
-              <option key={a.id} value={a.id}>{a.nombre}</option>
+              <option key={a.id} value={a.id}>
+                {a.nombre}
+              </option>
             ))}
           </select>
         </label>
@@ -93,48 +99,71 @@ export default function HoldingsSnapshotsPage() {
         </label>
         <label>
           Activo
-          <input value={activo} onChange={(e) => setActivo(e.target.value)} placeholder="ARS, USD, BTC..." required />
+          <input
+            value={activo}
+            onChange={(e) => setActivo(e.target.value)}
+            placeholder="ARS, USD, BTC…"
+            required
+          />
         </label>
         <label>
           Cantidad
-          <input type="number" step="any" value={cantidad} onChange={(e) => setCantidad(e.target.value)} required />
+          <input
+            type="number"
+            step="any"
+            value={cantidad}
+            onChange={(e) => setCantidad(e.target.value)}
+            required
+          />
         </label>
         <label>
           Valor (USD)
-          <input type="number" step="0.01" value={valorUsd} onChange={(e) => setValorUsd(e.target.value)} required />
+          <input
+            type="number"
+            step="0.01"
+            value={valorUsd}
+            onChange={(e) => setValorUsd(e.target.value)}
+            required
+          />
         </label>
         <label>
           Fuente
           <input value={fuente} onChange={(e) => setFuente(e.target.value)} required />
         </label>
-        <button type="submit">Agregar snapshot</button>
-        {error && <p style={{ color: "red" }}>{error}</p>}
+        <div className="btn-row">
+          <button type="submit" className="btn">
+            Agregar snapshot
+          </button>
+        </div>
+        {error && <div className="alert alert-error">{error}</div>}
       </form>
 
-      <table style={{ width: "100%", borderCollapse: "collapse" }}>
-        <thead>
-          <tr>
-            <th align="left">Fecha</th>
-            <th align="left">Cuenta</th>
-            <th align="left">Activo</th>
-            <th align="left">Cantidad</th>
-            <th align="left">Valor USD</th>
-            <th align="left">Fuente</th>
-          </tr>
-        </thead>
-        <tbody>
-          {snapshots.map((s) => (
-            <tr key={s.id}>
-              <td>{s.fecha}</td>
-              <td>{nombreCuenta(s.cuentaId)}</td>
-              <td>{s.activo}</td>
-              <td>{s.cantidad}</td>
-              <td>{s.valorUsd}</td>
-              <td>{s.fuente}</td>
+      <div className="table-wrap">
+        <table className="data">
+          <thead>
+            <tr>
+              <th>Fecha</th>
+              <th>Cuenta</th>
+              <th>Activo</th>
+              <th className="num">Cantidad</th>
+              <th className="num">Valor USD</th>
+              <th>Fuente</th>
             </tr>
-          ))}
-        </tbody>
-      </table>
+          </thead>
+          <tbody>
+            {snapshots.map((s) => (
+              <tr key={s.id}>
+                <td>{fmtFechaCorta(s.fecha)}</td>
+                <td>{nombreCuenta(s.cuentaId)}</td>
+                <td>{s.activo}</td>
+                <td className="num">{s.cantidad}</td>
+                <td className="num">{s.valorUsd}</td>
+                <td>{s.fuente}</td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
     </main>
   );
 }

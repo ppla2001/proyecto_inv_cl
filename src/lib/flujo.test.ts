@@ -43,6 +43,23 @@ describe("resumirFlujo", () => {
     expect(r.porCategoria).toEqual([{ categoriaId: 5, monto: { ars: 130, usd: 1.3 } }]);
   });
 
+  it("incluye gastos sin categoría en el desglose", () => {
+    const r = resumirFlujo(
+      [
+        mov({ tipo: "gasto_real", categoriaId: null, montoConvertido: { ars: 80, usd: 0.8 } }),
+        mov({ tipo: "gasto_real", categoriaId: 5, montoConvertido: { ars: 20, usd: 0.2 } }),
+      ],
+      grupos
+    );
+    expect(r.gastos.ars).toBe(100);
+    expect(r.porCategoria).toEqual(
+      expect.arrayContaining([
+        { categoriaId: null, monto: { ars: 80, usd: 0.8 } },
+        { categoriaId: 5, monto: { ars: 20, usd: 0.2 } },
+      ])
+    );
+  });
+
   it("reservar (corriente → ahorro) SUMA a ahorros", () => {
     const r = resumirFlujo(
       [

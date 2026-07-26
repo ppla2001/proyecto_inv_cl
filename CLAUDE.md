@@ -31,7 +31,7 @@ Dashboard personal de finanzas e inversiones. PWA para iPhone, uso individual (P
 
 ## Plan
 
-Ver `PLAN.md` — etapas E1 a E14, cada una con criterio verificable. Estado actual: **E1-E5 completadas** (E5 = importador de Mercado Pago vía CSV manual, no API). Próximo: **E6**, Dashboard MVP (adelantado antes de las integraciones para iterar el flujo con datos reales; las integraciones pasan a E7+).
+Ver `PLAN.md` — etapas E1 a E14. Estado actual: **E1–E6.7b completadas**. Próximo: **E7+**. Home = dashboard (`/`).
 
 ## Convenciones
 

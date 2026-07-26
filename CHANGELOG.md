@@ -2,6 +2,30 @@
 
 Registro cronológico de las etapas del proyecto, para seguir los cambios y avances. Una entrada por etapa (E*) o cambio transversal relevante. La planificación hacia adelante vive en `PLAN.md`; esto es el historial de lo hecho.
 
+## E6.7b — Pulido UX (modal cuentas, dólar, date picker)
+
+- Cuentas: botones chicos en la tabla; editar abre modal (ya no reusa el form de alta).
+- Dólar: muestra compra y venta; se elige compra / venta / promedio para el cálculo.
+- Período: date picker estilo ClickUp (presets laterales + calendario con rango).
+
+## E6.7 — UX del dashboard e import
+
+Mejoras de experiencia pedidas tras probar el shell:
+- Import: memoria de clasificación por descripción (reusa categoría/tipo/destino de imports previos en la misma cuenta).
+- Cuentas: editar y eliminar (`PATCH`/`DELETE /api/accounts/:id`).
+- Dashboard: selector de período (mes / día / rango + presets), selector de tipo de dólar (MEP/blue/oficial/cripto) con cotización de referencia visible en USD, gastos sin categoría en el desglose.
+- Docs actualizados.
+
+## E6.6 — Shell de UI
+
+Primera capa de diseño e interfaz sobre el MVP (sin cambiar APIs ni el modelo):
+- Home (`/`) = dashboard; `/dashboard` → redirect a `/`.
+- Nav sticky + `globals.css` (tokens de color, tipografía Plus Jakarta Sans, cards, tablas, forms, alerts).
+- Dashboard pulido: cards de resumen, barras por categoría, labels humanos, fechas cortas, mes ← →, “Guardando…”.
+- Import MP: pasos visibles, contador importar/saltear, dirección Ahorro explícita, filas dudosas.
+- CRUD y error boundary alineados al mismo estilo.
+- Docs: `PLAN.md`, `CHANGELOG.md`, `CLAUDE.md` actualizados.
+
 ## E6.5b — Fixes de dominio + higiene (follow-up)
 
 Segunda ronda tras revisión de Pedro con la base ya endurecida:

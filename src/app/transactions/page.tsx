@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from "react";
 import { apiFetch, mensajeDeError } from "@/lib/api-client";
+import { fmtFechaCorta, labelTipo } from "@/lib/labels";
 
 type Account = { id: number; nombre: string };
 type Category = { id: number; nombre: string; tipo: string };
@@ -107,14 +108,11 @@ export default function TransactionsPage() {
     };
 
     try {
-      await apiFetch(
-        editId ? `/api/transactions/${editId}` : "/api/transactions",
-        {
-          method: editId ? "PATCH" : "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify(payload),
-        }
-      );
+      await apiFetch(editId ? `/api/transactions/${editId}` : "/api/transactions", {
+        method: editId ? "PATCH" : "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(payload),
+      });
     } catch (e) {
       setError(mensajeDeError(e));
       return;
@@ -123,23 +121,29 @@ export default function TransactionsPage() {
     await cargarTodo();
   }
 
-  const nombreCuenta = (id: number) =>
-    accounts.find((a) => a.id === id)?.nombre ?? id;
+  const nombreCuenta = (id: number) => accounts.find((a) => a.id === id)?.nombre ?? id;
   const nombreCategoria = (id: number | null) =>
     id ? (categories.find((c) => c.id === id)?.nombre ?? id) : "—";
 
   return (
-    <main style={{ fontFamily: "system-ui", padding: "2rem", maxWidth: 700 }}>
-      <h1>Transacciones</h1>
+    <main className="app-main">
+      <h1 className="page-title">Movimientos</h1>
+      <p className="page-lead">Alta y edición manual de transacciones.</p>
 
-      <form onSubmit={handleSubmit} style={{ display: "grid", gap: "0.5rem", marginBottom: "2rem" }}>
+      <form onSubmit={handleSubmit} className="card form-grid" style={{ maxWidth: 520 }}>
         <label>
           Fecha
           <input type="date" value={fecha} onChange={(e) => setFecha(e.target.value)} required />
         </label>
         <label>
           Monto
-          <input type="number" step="0.01" value={monto} onChange={(e) => setMonto(e.target.value)} required />
+          <input
+            type="number"
+            step="0.01"
+            value={monto}
+            onChange={(e) => setMonto(e.target.value)}
+            required
+          />
         </label>
         <label>
           Moneda
@@ -148,9 +152,13 @@ export default function TransactionsPage() {
         <label>
           Cuenta
           <select value={cuentaId} onChange={(e) => setCuentaId(e.target.value)} required>
-            <option value="" disabled>Elegir cuenta</option>
+            <option value="" disabled>
+              Elegir cuenta
+            </option>
             {accounts.map((a) => (
-              <option key={a.id} value={a.id}>{a.nombre}</option>
+              <option key={a.id} value={a.id}>
+                {a.nombre}
+              </option>
             ))}
           </select>
         </label>
@@ -158,7 +166,9 @@ export default function TransactionsPage() {
           Tipo
           <select value={tipo} onChange={(e) => setTipo(e.target.value)}>
             {TIPOS.map((t) => (
-              <option key={t} value={t}>{t}</option>
+              <option key={t} value={t}>
+                {labelTipo(t)}
+              </option>
             ))}
           </select>
         </label>
@@ -168,7 +178,9 @@ export default function TransactionsPage() {
             <select value={categoriaId} onChange={(e) => setCategoriaId(e.target.value)}>
               <option value="">Sin categoría</option>
               {categories.map((c) => (
-                <option key={c.id} value={c.id}>{c.nombre} ({c.tipo})</option>
+                <option key={c.id} value={c.id}>
+                  {c.nombre} ({c.tipo})
+                </option>
               ))}
             </select>
           </label>
@@ -176,10 +188,18 @@ export default function TransactionsPage() {
         {tipo === "transferencia_interna" && (
           <label>
             Cuenta destino
-            <select value={cuentaDestinoId} onChange={(e) => setCuentaDestinoId(e.target.value)} required>
-              <option value="" disabled>Elegir cuenta destino</option>
+            <select
+              value={cuentaDestinoId}
+              onChange={(e) => setCuentaDestinoId(e.target.value)}
+              required
+            >
+              <option value="" disabled>
+                Elegir cuenta destino
+              </option>
               {accounts.map((a) => (
-                <option key={a.id} value={a.id}>{a.nombre}</option>
+                <option key={a.id} value={a.id}>
+                  {a.nombre}
+                </option>
               ))}
             </select>
           </label>
@@ -188,44 +208,62 @@ export default function TransactionsPage() {
           Descripción (opcional)
           <input value={descripcion} onChange={(e) => setDescripcion(e.target.value)} />
         </label>
-        <div style={{ display: "flex", gap: "0.5rem" }}>
-          <button type="submit">{editId ? "Guardar cambios" : "Agregar transacción"}</button>
-          {editId && <button type="button" onClick={resetForm}>Cancelar</button>}
+        <div className="btn-row">
+          <button type="submit" className="btn">
+            {editId ? "Guardar cambios" : "Agregar"}
+          </button>
+          {editId && (
+            <button type="button" className="btn btn-secondary" onClick={resetForm}>
+              Cancelar
+            </button>
+          )}
         </div>
-        {error && <p style={{ color: "red" }}>{error}</p>}
+        {error && <div className="alert alert-error">{error}</div>}
       </form>
 
-      <table style={{ width: "100%", borderCollapse: "collapse" }}>
-        <thead>
-          <tr>
-            <th align="left">Fecha</th>
-            <th align="left">Monto</th>
-            <th align="left">Cuenta</th>
-            <th align="left">Tipo</th>
-            <th align="left">Categoría</th>
-            <th align="left">Destino</th>
-            <th align="left">Descripción</th>
-            <th></th>
-          </tr>
-        </thead>
-        <tbody>
-          {transactions.map((t) => (
-            <tr key={t.id}>
-              <td>{t.fecha}</td>
-              <td>{t.monto} {t.moneda}</td>
-              <td>{nombreCuenta(t.cuentaId)}</td>
-              <td>{t.tipo}</td>
-              <td>{nombreCategoria(t.categoriaId)}</td>
-              <td>{t.cuentaDestinoId ? nombreCuenta(t.cuentaDestinoId) : "—"}</td>
-              <td>{t.descripcion ?? "—"}</td>
-              <td>
-                <button type="button" onClick={() => editar(t)}>Editar</button>{" "}
-                <button type="button" onClick={() => borrar(t.id)}>Borrar</button>
-              </td>
+      <div className="table-wrap">
+        <table className="data">
+          <thead>
+            <tr>
+              <th>Fecha</th>
+              <th className="num">Monto</th>
+              <th>Cuenta</th>
+              <th>Tipo</th>
+              <th className="hide-sm">Categoría</th>
+              <th className="hide-sm">Destino</th>
+              <th>Descripción</th>
+              <th></th>
             </tr>
-          ))}
-        </tbody>
-      </table>
+          </thead>
+          <tbody>
+            {transactions.map((t) => (
+              <tr key={t.id}>
+                <td>{fmtFechaCorta(t.fecha)}</td>
+                <td className="num">
+                  {t.monto.toLocaleString("es-AR")} {t.moneda}
+                </td>
+                <td>{nombreCuenta(t.cuentaId)}</td>
+                <td>{labelTipo(t.tipo)}</td>
+                <td className="hide-sm">{nombreCategoria(t.categoriaId)}</td>
+                <td className="hide-sm">
+                  {t.cuentaDestinoId ? nombreCuenta(t.cuentaDestinoId) : "—"}
+                </td>
+                <td>{t.descripcion ?? "—"}</td>
+                <td>
+                  <div className="btn-row">
+                    <button type="button" className="btn btn-secondary" onClick={() => editar(t)}>
+                      Editar
+                    </button>
+                    <button type="button" className="btn btn-secondary" onClick={() => borrar(t.id)}>
+                      Borrar
+                    </button>
+                  </div>
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
     </main>
   );
 }

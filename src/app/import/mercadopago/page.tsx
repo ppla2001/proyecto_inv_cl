@@ -2,6 +2,8 @@
 
 import { useEffect, useState } from "react";
 import { apiFetch, ApiClientError, mensajeDeError } from "@/lib/api-client";
+import { fmtFechaCorta, labelTipo } from "@/lib/labels";
+import { normalizarDescripcion } from "@/lib/category-hints";
 
 type Account = { id: number; nombre: string; tipoCuenta: string; grupo: string };
 type Category = { id: number; nombre: string; tipo: string };
@@ -28,8 +30,6 @@ type Row = Candidate & {
 
 const TIPOS = ["gasto_real", "ingreso_real", "transferencia_interna"] as const;
 
-// Categorías que el parser puede sugerir, con su tipo, para autocrearlas si
-// faltan (ej. tras un arranque limpio).
 const TIPO_CATEGORIA_SUGERIDA: Record<string, "gasto" | "ingreso"> = {
   "Rendimientos MP": "ingreso",
 };
@@ -41,18 +41,22 @@ export default function ImportMpPage() {
   const [moneda, setMoneda] = useState("ARS");
   const [selfNames, setSelfNames] = useState("PLA PEDRO, Pedro Pla");
   const [csvText, setCsvText] = useState("");
+  const [fileName, setFileName] = useState("");
   const [rows, setRows] = useState<Row[]>([]);
   const [error, setError] = useState<string | null>(null);
   const [resultado, setResultado] = useState<string | null>(null);
+  const [busy, setBusy] = useState(false);
 
   useEffect(() => {
     Promise.all([
-      fetch("/api/accounts").then((r) => r.json()),
-      fetch("/api/categories").then((r) => r.json()),
-    ]).then(([a, c]) => {
-      setAccounts(a);
-      setCategories(c);
-    });
+      apiFetch<Account[]>("/api/accounts"),
+      apiFetch<Category[]>("/api/categories"),
+    ])
+      .then(([a, c]) => {
+        setAccounts(a);
+        setCategories(c);
+      })
+      .catch((e) => setError(mensajeDeError(e)));
   }, []);
 
   function matchCategoria(nombre: string | undefined, lista: Category[]): string {
@@ -61,8 +65,6 @@ export default function ImportMpPage() {
     return found ? String(found.id) : "";
   }
 
-  // Crea las categorías sugeridas por el parser que todavía no existan, y
-  // devuelve la lista actualizada de categorías.
   async function asegurarCategoriasSugeridas(candidates: Candidate[]): Promise<Category[]> {
     const sugeridas = new Set(
       candidates.map((c) => c.categoriaSugerida).filter((n): n is string => !!n)
@@ -98,15 +100,24 @@ export default function ImportMpPage() {
     return "";
   }
 
+  function direccionAhorro(r: Row): string | null {
+    if (!r.esAhorro) return null;
+    return r.esAhorroSalida ? "Ahorro → corriente" : "Corriente → Ahorro";
+  }
+
   async function handleFile(e: React.ChangeEvent<HTMLInputElement>) {
     const file = e.target.files?.[0];
     if (!file) return;
+    setFileName(file.name);
     setCsvText(await file.text());
+    setRows([]);
+    setResultado(null);
   }
 
   async function parsear() {
     setError(null);
     setResultado(null);
+    setBusy(true);
     try {
       const { candidates } = await apiFetch<{ candidates: Candidate[] }>(
         "/api/import/mercadopago",
@@ -120,17 +131,43 @@ export default function ImportMpPage() {
         }
       );
       const cats = await asegurarCategoriasSugeridas(candidates);
+
+      // Memoria: si ya clasificaste la misma descripción en esta cuenta, reusar.
+      let hints: Record<
+        string,
+        { categoriaId: number | null; tipo: string; cuentaDestinoId: number | null }
+      > = {};
+      if (cuentaOrigenId) {
+        const res = await apiFetch<{ hints: typeof hints }>(
+          `/api/import/hints?cuentaId=${cuentaOrigenId}`
+        );
+        hints = res.hints;
+      }
+
       setRows(
-        candidates.map((c) => ({
-          ...c,
-          incluir: !c.ignorarPorDefecto,
-          tipo: c.tipoSugerido,
-          categoriaId: matchCategoria(c.categoriaSugerida, cats),
-          cuentaDestinoId: destinoSugerido(c),
-        }))
+        candidates.map((c) => {
+          const hint = hints[normalizarDescripcion(c.descripcion)];
+          const tipo = (hint?.tipo as Row["tipo"] | undefined) ?? c.tipoSugerido;
+          let categoriaId = matchCategoria(c.categoriaSugerida, cats);
+          if (hint?.categoriaId != null) categoriaId = String(hint.categoriaId);
+          let cuentaDestinoId = destinoSugerido(c);
+          if (hint?.cuentaDestinoId != null) {
+            cuentaDestinoId = String(hint.cuentaDestinoId);
+          }
+          return {
+            ...c,
+            incluir: !c.ignorarPorDefecto,
+            tipo,
+            categoriaId: tipo === "transferencia_interna" ? "" : categoriaId,
+            cuentaDestinoId:
+              tipo === "transferencia_interna" ? cuentaDestinoId : "",
+          };
+        })
       );
     } catch (e) {
       setError(mensajeDeError(e));
+    } finally {
+      setBusy(false);
     }
   }
 
@@ -155,9 +192,6 @@ export default function ImportMpPage() {
             ? Number(r.cuentaDestinoId)
             : undefined;
 
-        // Un retiro de Ahorro va Ahorro -> corriente: se invierten las patas
-        // (la cuenta de ahorro es el origen, la corriente el destino). El
-        // resto de las transferencias van desde la cuenta de MP hacia el destino.
         const [cuentaId, cuentaDestinoId] =
           r.esAhorroSalida && destino ? [destino, origen] : [origen, destino];
 
@@ -173,12 +207,11 @@ export default function ImportMpPage() {
           tipo: r.tipo,
           descripcion: r.descripcion,
           cuentaDestinoId,
-          // dedupe: reimportar el mismo CSV no duplica. Vacío -> null (para no
-          // colisionar varias filas sin id en el índice unique).
           externalId: r.referenceId?.trim() || null,
         };
       });
 
+    setBusy(true);
     try {
       const res = await apiFetch<{ total: number; insertadas: number; duplicadas: number }>(
         "/api/import/confirm",
@@ -193,29 +226,55 @@ export default function ImportMpPage() {
       );
       setRows([]);
     } catch (e) {
-      // Si hay filas inválidas, el server no importó nada y manda el detalle.
       const detalle =
         e instanceof ApiClientError && e.details
           ? ` Detalle: ${JSON.stringify(e.details)}`
           : "";
       setError(`${mensajeDeError(e)}${detalle}`);
+    } finally {
+      setBusy(false);
     }
   }
 
   const incluidas = rows.filter((r) => r.incluir).length;
+  const salteadas = rows.length - incluidas;
 
   return (
-    <main style={{ fontFamily: "system-ui", padding: "2rem", maxWidth: 1000 }}>
-      <h1>Importar Mercado Pago</h1>
-      <p>Subí el CSV de &quot;Resumen de cuenta&quot;. Revisá la clasificación sugerida antes de confirmar.</p>
+    <main className="app-main">
+      <h1 className="page-title">Importar Mercado Pago</h1>
+      <p className="page-lead">
+        Subí el CSV de &quot;Resumen de cuenta&quot;, revisá la clasificación sugerida y confirmá.
+        Si elegís la cuenta antes de parsear, se reutilizan categorías de imports anteriores
+        con la misma descripción.
+      </p>
 
-      <div style={{ display: "grid", gap: "0.5rem", marginBottom: "1rem", maxWidth: 500 }}>
+      <div className="steps" aria-label="Pasos">
+        <div className={`step ${csvText || rows.length > 0 ? "active" : ""}`}>
+          <span className="n">1</span> Cuenta y archivo
+        </div>
+        <div className={`step ${rows.length > 0 ? "active" : ""}`}>
+          <span className="n">2</span> Revisar
+        </div>
+        <div className={`step ${resultado ? "active" : ""}`}>
+          <span className="n">3</span> Confirmar
+        </div>
+      </div>
+
+      <div className="card form-grid" style={{ maxWidth: 520, marginBottom: "1.5rem" }}>
         <label>
           Cuenta de origen (Mercado Pago)
-          <select value={cuentaOrigenId} onChange={(e) => setCuentaOrigenId(e.target.value)} required>
-            <option value="" disabled>Elegir cuenta</option>
+          <select
+            value={cuentaOrigenId}
+            onChange={(e) => setCuentaOrigenId(e.target.value)}
+            required
+          >
+            <option value="" disabled>
+              Elegir cuenta
+            </option>
             {accounts.map((a) => (
-              <option key={a.id} value={a.id}>{a.nombre}</option>
+              <option key={a.id} value={a.id}>
+                {a.nombre}
+              </option>
             ))}
           </select>
         </label>
@@ -227,83 +286,131 @@ export default function ImportMpPage() {
           </select>
         </label>
         <label>
-          Tus nombres (para detectar transferencias entre cuentas propias)
+          Tus nombres (transferencias propias)
           <input value={selfNames} onChange={(e) => setSelfNames(e.target.value)} />
         </label>
         <label>
           Archivo CSV
           <input type="file" accept=".csv" onChange={handleFile} />
+          {fileName && <span className="hint">{fileName}</span>}
         </label>
-        <button type="button" onClick={parsear} disabled={!csvText}>Parsear</button>
+        <div className="btn-row">
+          <button type="button" className="btn" onClick={parsear} disabled={!csvText || busy}>
+            {busy && rows.length === 0 ? "Parseando…" : "Parsear"}
+          </button>
+        </div>
       </div>
 
-      {error && <p style={{ color: "red" }}>{error}</p>}
-      {resultado && <p style={{ color: "green" }}>{resultado}</p>}
+      {error && <div className="alert alert-error">{error}</div>}
+      {resultado && <div className="alert alert-ok">{resultado}</div>}
 
       {rows.length > 0 && (
         <>
-          <p>
-            {incluidas} de {rows.length} movimientos seleccionados.{" "}
-            <button type="button" onClick={confirmar}>Confirmar importación</button>
-          </p>
-          <table style={{ width: "100%", borderCollapse: "collapse", fontSize: "0.85rem" }}>
-            <thead>
-              <tr>
-                <th></th>
-                <th align="left">Fecha</th>
-                <th align="left">Descripción</th>
-                <th align="right">Monto</th>
-                <th align="left">Tipo</th>
-                <th align="left">Categoría / Destino</th>
-              </tr>
-            </thead>
-            <tbody>
-              {rows.map((r, i) => (
-                <tr key={r.referenceId} style={{ opacity: r.incluir ? 1 : 0.4 }}>
-                  <td>
-                    <input
-                      type="checkbox"
-                      checked={r.incluir}
-                      onChange={(e) => updateRow(i, { incluir: e.target.checked })}
-                    />
-                  </td>
-                  <td>{r.fecha}</td>
-                  <td>{r.descripcion}</td>
-                  <td align="right">{r.monto.toLocaleString("es-AR")}</td>
-                  <td>
-                    <select value={r.tipo} onChange={(e) => updateRow(i, { tipo: e.target.value as Row["tipo"] })}>
-                      {TIPOS.map((t) => (
-                        <option key={t} value={t}>{t}</option>
-                      ))}
-                    </select>
-                  </td>
-                  <td>
-                    {r.tipo === "transferencia_interna" ? (
-                      <select
-                        value={r.cuentaDestinoId}
-                        onChange={(e) => updateRow(i, { cuentaDestinoId: e.target.value })}
-                      >
-                        <option value="">Cuenta destino...</option>
-                        {accounts.map((a) => (
-                          <option key={a.id} value={a.id}>{a.nombre}</option>
-                        ))}
-                      </select>
-                    ) : (
-                      <select
-                        value={r.categoriaId}
-                        onChange={(e) => updateRow(i, { categoriaId: e.target.value })}
-                      >
-                        <option value="">Sin categoría</option>
-                        {categories.map((c) => (
-                          <option key={c.id} value={c.id}>{c.nombre} ({c.tipo})</option>
-                        ))}
-                      </select>
-                    )}
-                  </td>
+          <div className="toolbar" style={{ justifyContent: "space-between" }}>
+            <p className="muted" style={{ margin: 0 }}>
+              <strong>{incluidas}</strong> a importar
+              {salteadas > 0 && (
+                <>
+                  {" "}
+                  · <strong>{salteadas}</strong> salteadas
+                </>
+              )}{" "}
+              de {rows.length}
+            </p>
+            <button type="button" className="btn" onClick={confirmar} disabled={busy || incluidas === 0}>
+              {busy ? "Importando…" : "Confirmar importación"}
+            </button>
+          </div>
+
+          <div className="table-wrap">
+            <table className="data">
+              <thead>
+                <tr>
+                  <th></th>
+                  <th>Fecha</th>
+                  <th>Descripción</th>
+                  <th className="num">Monto</th>
+                  <th>Tipo</th>
+                  <th>Categoría / Destino</th>
                 </tr>
-              ))}
-            </tbody>
-          </table>
+              </thead>
+              <tbody>
+                {rows.map((r, i) => {
+                  const dudosa =
+                    r.incluir &&
+                    ((r.tipo === "transferencia_interna" && !r.cuentaDestinoId) ||
+                      (r.tipo !== "transferencia_interna" && !r.categoriaId));
+                  const dir = direccionAhorro(r);
+                  return (
+                    <tr key={r.referenceId} className={r.incluir ? undefined : "dim"}>
+                      <td>
+                        <input
+                          type="checkbox"
+                          checked={r.incluir}
+                          onChange={(e) => updateRow(i, { incluir: e.target.checked })}
+                          aria-label="Incluir"
+                        />
+                      </td>
+                      <td>{fmtFechaCorta(r.fecha)}</td>
+                      <td>
+                        <div className="mov-desc">
+                          <span>{r.descripcion}</span>
+                          {dir && <span className="mov-meta">{dir}</span>}
+                          {dudosa && (
+                            <span className="mov-meta" style={{ color: "var(--warn)" }}>
+                              Revisar categoría o destino
+                            </span>
+                          )}
+                        </div>
+                      </td>
+                      <td className="num">{r.monto.toLocaleString("es-AR")}</td>
+                      <td>
+                        <select
+                          value={r.tipo}
+                          onChange={(e) =>
+                            updateRow(i, { tipo: e.target.value as Row["tipo"] })
+                          }
+                        >
+                          {TIPOS.map((t) => (
+                            <option key={t} value={t}>
+                              {labelTipo(t)}
+                            </option>
+                          ))}
+                        </select>
+                      </td>
+                      <td>
+                        {r.tipo === "transferencia_interna" ? (
+                          <select
+                            value={r.cuentaDestinoId}
+                            onChange={(e) => updateRow(i, { cuentaDestinoId: e.target.value })}
+                          >
+                            <option value="">Cuenta destino…</option>
+                            {accounts.map((a) => (
+                              <option key={a.id} value={a.id}>
+                                {a.nombre}
+                              </option>
+                            ))}
+                          </select>
+                        ) : (
+                          <select
+                            value={r.categoriaId}
+                            onChange={(e) => updateRow(i, { categoriaId: e.target.value })}
+                          >
+                            <option value="">Sin categoría</option>
+                            {categories.map((c) => (
+                              <option key={c.id} value={c.id}>
+                                {c.nombre} ({c.tipo})
+                              </option>
+                            ))}
+                          </select>
+                        )}
+                      </td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+          </div>
         </>
       )}
     </main>

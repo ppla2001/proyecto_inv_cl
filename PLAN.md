@@ -132,6 +132,28 @@ Antes de sumar más integraciones se cierra un conjunto de gaps de robustez dete
 - **Prolijidad:** wrapper de rutas que atrapa/loguea con contexto y devuelve `{ error: { message, details } }`; aviso explícito cuando falta cotización en vez de convertir a 0 en silencio; error boundary de React (`error.tsx`).
 **Verificable:** reimportar el mismo CSV no duplica; recategorizar a un estado inválido desde el dashboard se rechaza con mensaje claro; una API caída muestra error en la UI en vez de crashear.
 
+### E6.5b — Fixes de dominio + higiene ✅
+Follow-up tras revisión con la base endurecida: dirección correcta de “Dinero retirado Ahorro” (Ahorro→corriente), `external_id` vacío → NULL, autocreación de categorías sugeridas, `resumirFlujo` puro + tests, CRUD con `apiFetch`.
+
+### E6.6 — Shell de UI (diseño e interfaz) ✅
+Primera pasada de diseño sobre el MVP, sin tocar APIs ni el modelo:
+- Home (`/`) = dashboard; `/dashboard` redirige a `/`.
+- Layout con nav sticky (Dashboard, Importar, Cuentas, Categorías, Movimientos) + `globals.css` (tokens, tipografía Plus Jakarta Sans, superficies, tablas, alerts).
+- Dashboard: resumen en cards, barras de gasto por categoría, labels humanos de tipo, fechas `dd/mm`, navegación de mes ← →, feedback “Guardando…”.
+- Import MP: pasos 1–2–3, contador a importar/salteadas, hint de dirección Ahorro, filas dudosas marcadas.
+- Pantallas CRUD y `error.tsx` alineadas al mismo lenguaje visual.
+**Verificable:** abrir `/` se ve como app (nav + dashboard), no como páginas sueltas de debug; import y CRUD usan el mismo estilo.
+
+### E6.7 — UX dashboard / import / cuentas ✅
+- Memoria de categorías en import (`GET /api/import/hints`) por descripción normalizada.
+- CRUD de cuentas: editar y eliminar.
+- Dashboard: período flexible (mes, día, rango + presets), tipo de dólar seleccionable con tasa de referencia, “Sin categoría” en el desglose de gastos.
+**Verificable:** reimportar una transferencia ya categorizada trae la categoría; cambiar a USD muestra MEP/blue/etc.; un gasto sin categoría aparece en el desglose.
+
+### E6.7b — Pulido UX ✅
+Modal de edición de cuentas + botones compactos; cotización con compra/venta/promedio; date picker con presets + calendario de rango.
+**Verificable:** Editar cuenta abre modal; en USD se ven compra/venta y se puede elegir el precio; el período se elige como en ClickUp.
+
 ### E7 — Integración Binance (API)
 API key de solo lectura (`.env.local`). Trae balances actuales, historial de operaciones, depósitos y retiros. Depósitos/retiros que cruzan hacia otra cuenta propia alimentan `transactions`; compras/ventas de cripto dentro de la plataforma alimentan `holdings_movements`; balances actuales alimentan `holdings_snapshots`.
 **Verificable:** holdings y movimientos reales de Binance reflejados en la base.
@@ -178,4 +200,4 @@ Watchlist y top movers vía CoinGecko (preferido sobre CoinMarketCap por mejor f
 
 ## Próximo paso
 
-E6.5 — Endurecimiento: slice 1 (integridad: FK, dedupe por external_id, PATCH rules), luego slice 2 (flujo) y slice 3 (prolijidad).
+E7 (o confirmar si se adelanta MetaMask / CSV Binance). UX del dashboard e import (E6.7) ya cubre período flexible, tipo de dólar y memoria de categorías.

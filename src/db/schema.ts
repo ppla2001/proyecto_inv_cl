@@ -110,3 +110,18 @@ export const holdingsMovements = sqliteTable("holdings_movements", {
   valorUsd: real("valor_usd").notNull(), // normalizado al momento del movimiento
   fuente: text("fuente").notNull(), // "manual" | "api_binance" | ...
 });
+
+// Watchlist de activos por cuenta MetaMask: qué tokens/NFTs seguir (curados una
+// sola vez al configurar la cuenta, filtrando el spam). Los syncs solo valúan
+// estos. Guardar la watchlist = reemplazar las filas de la cuenta.
+export const trackedAssets = sqliteTable("tracked_assets", {
+  id: integer("id").primaryKey({ autoIncrement: true }),
+  cuentaId: integer("cuenta_id").notNull().references(() => accounts.id),
+  red: text("red").notNull(), // "ethereum" | "arbitrum" | ...
+  tipo: text("tipo").notNull(), // "token" | "nft"
+  activo: text("activo").notNull(), // símbolo del token o nombre de colección
+  nombre: text("nombre"),
+  contractAddress: text("contract_address"), // null = token nativo
+  tokenId: text("token_id"), // solo NFT (bignum como string)
+  decimals: integer("decimals"), // solo token
+});

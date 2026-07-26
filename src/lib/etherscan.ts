@@ -131,6 +131,70 @@ async function balanceToken(
   });
 }
 
+export type NftPoseido = {
+  contractAddress: string;
+  tokenId: string;
+  coleccion: string; // tokenName
+  simbolo: string; // tokenSymbol
+  estandar: "erc721" | "erc1155";
+  cantidad: number; // 1 para ERC-721; puede ser >1 en ERC-1155
+};
+
+// Reconstruye los NFTs actualmente poseídos desde el historial de transfers
+// (entradas − salidas por contrato+tokenId). El endpoint de inventario directo
+// es PRO (pago), así que se reconstruye del historial (free). Cubre los últimos
+// ~1000 transfers por estándar; wallets con historial NFT enorme podrían perder
+// alguno muy viejo.
+export async function nftsPoseidos(
+  chainId: number,
+  address: string
+): Promise<NftPoseido[]> {
+  const addr = address.toLowerCase();
+  const neto = new Map<string, NftPoseido & { key: string }>();
+
+  async function acumular(action: "tokennfttx" | "token1155tx", estandar: "erc721" | "erc1155") {
+    const txs = await call<Array<Record<string, string>>>(chainId, {
+      module: "account",
+      action,
+      address,
+      page: "1",
+      offset: "1000",
+      sort: "desc",
+    });
+    for (const t of txs) {
+      const contract = t.contractAddress?.toLowerCase();
+      const tokenId = t.tokenID ?? "";
+      if (!contract) continue;
+      const key = `${contract}#${tokenId}`;
+      const cant = estandar === "erc1155" ? Number(t.tokenValue ?? "1") : 1;
+      const entra = t.to?.toLowerCase() === addr;
+      const sale = t.from?.toLowerCase() === addr;
+      const delta = (entra ? cant : 0) - (sale ? cant : 0);
+      if (delta === 0) continue;
+      const prev = neto.get(key);
+      if (prev) {
+        prev.cantidad += delta;
+      } else {
+        neto.set(key, {
+          key,
+          contractAddress: contract,
+          tokenId,
+          coleccion: t.tokenName ?? "",
+          simbolo: t.tokenSymbol ?? "",
+          estandar,
+          cantidad: delta,
+        });
+      }
+    }
+  }
+
+  await acumular("tokennfttx", "erc721");
+  await sleep(400);
+  await acumular("token1155tx", "erc1155");
+
+  return [...neto.values()].filter((n) => n.cantidad > 0);
+}
+
 /**
  * Holdings de una dirección en una red: token nativo + ERC-20 con balance > 0.
  * `nativoSimbolo` es el símbolo del gas token (ETH/POL). Throttle simple para

@@ -3,7 +3,12 @@
 // es pura y testeable; la de fetch coordina las fuentes.
 
 import { CHAINS } from "@/lib/chains";
-import { holdingsOnChain, type HoldingOnChain } from "@/lib/etherscan";
+import {
+  holdingsOnChain,
+  nftsPoseidos,
+  type HoldingOnChain,
+  type NftPoseido,
+} from "@/lib/etherscan";
 import { preciosNativos, preciosTokens } from "@/lib/prices";
 
 export type HoldingValuado = {
@@ -77,4 +82,25 @@ export async function holdingsValuados(
   }
 
   return resultado;
+}
+
+export type NftDescubierto = NftPoseido & { red: string };
+
+// DESCUBRIMIENTO para el setup de una cuenta: trae TODOS los tokens (valuados,
+// para poder pre-marcar los que cotizan) y TODOS los NFTs poseídos de todas las
+// redes con dirección. El usuario después cura (elige cuáles seguir).
+export async function descubrir(
+  direccionesPorRed: Record<string, string>
+): Promise<{ tokens: HoldingValuado[]; nfts: NftDescubierto[] }> {
+  const tokens = await holdingsValuados(direccionesPorRed);
+
+  const nfts: NftDescubierto[] = [];
+  for (const chain of CHAINS) {
+    const address = direccionesPorRed[chain.red]?.trim();
+    if (!address) continue;
+    const poseidos = await nftsPoseidos(chain.chainId, address);
+    nfts.push(...poseidos.map((n) => ({ ...n, red: chain.red })));
+  }
+
+  return { tokens, nfts };
 }

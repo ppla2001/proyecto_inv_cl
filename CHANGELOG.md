@@ -2,6 +2,17 @@
 
 Registro cronológico de las etapas del proyecto, para seguir los cambios y avances. Una entrada por etapa (E*) o cambio transversal relevante. La planificación hacia adelante vive en `PLAN.md`; esto es el historial de lo hecho.
 
+## E7.1 — MetaMask: watchlist con descubrimiento + curación
+
+Rediseño del flujo pedido por Pedro: al configurar una cuenta MetaMask, escanea TODAS las redes trayendo **todos los tokens y NFTs**, se curan una sola vez (se filtra el spam), y los elegidos quedan como "watchlist" de la cuenta.
+
+- **NFTs vía Etherscan (gratis):** se reconstruye la tenencia actual desde el historial de transfers (`tokennfttx` ERC-721 + `token1155tx` ERC-1155; el endpoint de inventario directo es PRO/pago). Verificado: 4 NFTs reales en Ethereum (The Plague, Good Vibes Club, LilPudgys) + 139 en Abstract (mayoría spam).
+- **Curación:** tokens con precio pre-marcados (el spam sin cotización se oculta); NFTs **agrupados por colección** (49 colecciones para 139 NFTs) para poder elegir las reales sin scroll infinito.
+- **Modelo:** tabla `tracked_assets` (watchlist por cuenta: token/nft, red, contrato, tokenId). Guardar = reemplaza la watchlist de la cuenta **y** guarda un snapshot de los tokens elegidos (atómico). Los NFTs quedan trackeados sin valuar (floor price = E7b/OpenSea).
+- **Pantalla `/metamask`** rediseñada: direcciones → escanear → curar (tokens + colecciones NFT) → guardar. Muestra la watchlist actual si ya existe.
+
+Verificado end-to-end con wallets reales: escaneo (~47s), curación, guardado de 4 tokens + 4 NFTs + snapshots. **Pendiente:** historial de movimientos on-chain y dedup de snapshots por día (refinamiento menor).
+
 ## E7 — Integración MetaMask (on-chain, multichain)
 
 Primera integración por API (dirección MetaMask-first: MP/Balanz/Binance quedan por CSV). Lee holdings on-chain de una dirección pública y los guarda como `holdings_snapshots`. Solo lectura.

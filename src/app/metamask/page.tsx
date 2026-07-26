@@ -25,7 +25,20 @@ type Nft = { red: string; contractAddress: string; tokenId: string; coleccion: s
 type Red = { red: string; nombre: string };
 type Snapshot = { red: string; activo: string; cantidad: number; valorUsd: number };
 type TrackedNft = { red: string; activo: string; tokenId: string | null };
-type Current = { fechaSnapshot: string | null; tokens: Snapshot[]; nfts: TrackedNft[]; total: number };
+type NftColeccion = {
+  red: string; coleccion: string; cantidad: number;
+  floorUsd: number | null; ofertaUsd: number | null;
+};
+type Current = {
+  fechaSnapshot: string | null;
+  tokens: Snapshot[];
+  nfts: TrackedNft[];
+  nftColecciones: NftColeccion[];
+  totalTokens: number;
+  nftFloorTotal: number;
+  nftOfertaTotal: number;
+  total: number;
+};
 
 const REDES_NOMBRE: Record<string, string> = {
   ethereum: "Ethereum", arbitrum: "Arbitrum", polygon: "Polygon", abstract: "Abstract",
@@ -41,6 +54,7 @@ export default function MetaMaskPage() {
   const [modo, setModo] = useState<"ver" | "setup">("ver");
   const [current, setCurrent] = useState<Current | null>(null);
   const [tieneWatchlist, setTieneWatchlist] = useState(false);
+  const [baseNft, setBaseNft] = useState<"floor" | "oferta">("floor"); // base para valuar NFTs
 
   // Estado del descubrimiento (setup).
   const [tokens, setTokens] = useState<Token[]>([]);
@@ -100,31 +114,27 @@ export default function MetaMaskPage() {
     return [...map.values()].sort((a, b) => b.items.length - a.items.length);
   }, [nfts]);
 
-  // Agrupar NFTs de la watchlist para la vista "ver".
-  const nftsView = useMemo(() => {
-    const map = new Map<string, { red: string; coleccion: string; count: number }>();
-    for (const n of current?.nfts ?? []) {
-      const key = `${n.red}|${n.activo}`;
-      const g = map.get(key) ?? { red: n.red, coleccion: n.activo, count: 0 };
-      g.count++;
-      map.set(key, g);
-    }
-    return [...map.values()].sort((a, b) => b.count - a.count);
-  }, [current]);
+  const nftColecciones = current?.nftColecciones ?? [];
+  const nftTotal = baseNft === "floor" ? current?.nftFloorTotal ?? 0 : current?.nftOfertaTotal ?? 0;
+  const patrimonioTotal = (current?.totalTokens ?? 0) + nftTotal;
 
   async function actualizar() {
     setError(null);
     setResultado(null);
     setBusy(true);
     try {
-      const res = await apiFetch<{ fecha: string; total: number }>("/api/metamask/sync", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ cuentaId: Number(cuentaId) }),
-      });
+      const res = await apiFetch<{ fecha: string; total: number; nfts?: { floorTotal: number } | null }>(
+        "/api/metamask/sync",
+        {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ cuentaId: Number(cuentaId) }),
+        }
+      );
       const cur = await apiFetch<Current>(`/api/metamask/current?cuentaId=${cuentaId}`);
       setCurrent(cur);
-      setResultado(`Actualizado al ${res.fecha}: ${fmtUsd(res.total)} en tokens.`);
+      const nftMsg = res.nfts ? ` + ${fmtUsd(res.nfts.floorTotal)} en NFTs (floor)` : "";
+      setResultado(`Actualizado al ${res.fecha}: ${fmtUsd(res.total)} en tokens${nftMsg}.`);
     } catch (e) {
       setError(mensajeDeError(e));
     } finally {
@@ -236,9 +246,21 @@ export default function MetaMaskPage() {
         <>
           <div className="card-grid" style={{ marginBottom: "1rem" }}>
             <div className="stat-card">
-              <div className="muted">Total en tokens</div>
-              <div className="page-title" style={{ margin: 0 }}>{fmtUsd(current?.total ?? 0)}</div>
+              <div className="muted">Patrimonio MetaMask</div>
+              <div className="page-title" style={{ margin: 0 }}>{fmtUsd(patrimonioTotal)}</div>
+              <div className="hint">
+                Tokens {fmtUsd(current?.totalTokens ?? 0)} · NFTs {fmtUsd(nftTotal)} ({baseNft})
+              </div>
+            </div>
+            <div className="stat-card">
+              <div className="muted">Tokens</div>
+              <div className="page-title" style={{ margin: 0 }}>{fmtUsd(current?.totalTokens ?? 0)}</div>
               {current?.fechaSnapshot && <div className="hint">Snapshot del {current.fechaSnapshot}</div>}
+            </div>
+            <div className="stat-card">
+              <div className="muted">NFTs (a {baseNft})</div>
+              <div className="page-title" style={{ margin: 0 }}>{fmtUsd(nftTotal)}</div>
+              <div className="hint">floor {fmtUsd(current?.nftFloorTotal ?? 0)} · oferta {fmtUsd(current?.nftOfertaTotal ?? 0)}</div>
             </div>
           </div>
           <div className="toolbar" style={{ justifyContent: "flex-end" }}>
@@ -267,17 +289,41 @@ export default function MetaMaskPage() {
             </div>
           )}
 
-          {nftsView.length > 0 && (
+          {nftColecciones.length > 0 && (
             <>
-              <h2 className="section-title">NFTs ({current?.nfts.length ?? 0})</h2>
-              <p className="hint">Trackeados sin valuar (el floor price llega con OpenSea).</p>
+              <div className="toolbar" style={{ justifyContent: "space-between", alignItems: "center" }}>
+                <h2 className="section-title" style={{ margin: 0 }}>NFTs ({current?.nfts.length ?? 0})</h2>
+                <label style={{ margin: 0 }}>
+                  Valuar a{" "}
+                  <select value={baseNft} onChange={(e) => setBaseNft(e.target.value as "floor" | "oferta")}>
+                    <option value="floor">Floor price</option>
+                    <option value="oferta">Mejor oferta</option>
+                  </select>
+                </label>
+              </div>
+              <p className="hint">Valores de OpenSea. La oferta puede no estar disponible en algunas redes (queda “—”).</p>
               <div className="table-wrap">
                 <table className="data">
-                  <thead><tr><th>Red</th><th>Colección</th><th className="num">Cantidad</th></tr></thead>
+                  <thead>
+                    <tr>
+                      <th>Red</th><th>Colección</th><th className="num">Cant.</th>
+                      <th className="num">Floor c/u</th><th className="num">Oferta c/u</th>
+                      <th className="num">Valor ({baseNft})</th>
+                    </tr>
+                  </thead>
                   <tbody>
-                    {nftsView.map((c, i) => (
-                      <tr key={i}><td>{nombreRed(c.red)}</td><td>{c.coleccion}</td><td className="num">{c.count}</td></tr>
-                    ))}
+                    {nftColecciones.map((c, i) => {
+                      const unit = baseNft === "floor" ? c.floorUsd : c.ofertaUsd;
+                      return (
+                        <tr key={i}>
+                          <td>{nombreRed(c.red)}</td><td>{c.coleccion}</td>
+                          <td className="num">{c.cantidad}</td>
+                          <td className="num">{c.floorUsd != null ? fmtUsd(c.floorUsd) : "—"}</td>
+                          <td className="num">{c.ofertaUsd != null ? fmtUsd(c.ofertaUsd) : "—"}</td>
+                          <td className="num">{unit != null ? fmtUsd(unit * c.cantidad) : "—"}</td>
+                        </tr>
+                      );
+                    })}
                   </tbody>
                 </table>
               </div>

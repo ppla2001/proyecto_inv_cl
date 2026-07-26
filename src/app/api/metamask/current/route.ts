@@ -38,16 +38,45 @@ export const GET = route<unknown>("GET /metamask/current", async (request) => {
         )
     : [];
 
-  const nfts = await db
+  const nftRows = await db
     .select()
     .from(trackedAssets)
     .where(and(eq(trackedAssets.cuentaId, cuentaId), eq(trackedAssets.tipo, "nft")));
 
-  const total = tokens.reduce((s, t) => s + t.valorUsd, 0);
+  // Agrupar NFTs por colección (red+contrato): floor/oferta son por-NFT, así que
+  // el valor de la colección = valor por NFT × cantidad poseída.
+  const colMap = new Map<
+    string,
+    { red: string; coleccion: string; cantidad: number; floorUsd: number | null; ofertaUsd: number | null }
+  >();
+  for (const n of nftRows) {
+    const key = `${n.red}|${(n.contractAddress ?? n.activo).toLowerCase()}`;
+    const g = colMap.get(key) ?? {
+      red: n.red,
+      coleccion: n.activo,
+      cantidad: 0,
+      floorUsd: n.floorUsd,
+      ofertaUsd: n.ofertaUsd,
+    };
+    g.cantidad++;
+    colMap.set(key, g);
+  }
+  const nftColecciones = [...colMap.values()].sort((a, b) => (b.floorUsd ?? 0) * b.cantidad - (a.floorUsd ?? 0) * a.cantidad);
+
+  const totalTokens = tokens.reduce((s, t) => s + t.valorUsd, 0);
+  const nftFloorTotal = nftColecciones.reduce((s, c) => s + (c.floorUsd ?? 0) * c.cantidad, 0);
+  const nftOfertaTotal = nftColecciones.reduce((s, c) => s + (c.ofertaUsd ?? 0) * c.cantidad, 0);
+
   return NextResponse.json({
     fechaSnapshot: ultimo?.fecha ?? null,
     tokens,
-    nfts,
-    total,
+    // Compat: `nfts` sigue siendo la lista cruda; `nftColecciones` trae la
+    // valuación agrupada y los totales por base (floor / oferta).
+    nfts: nftRows,
+    nftColecciones,
+    totalTokens,
+    nftFloorTotal,
+    nftOfertaTotal,
+    total: totalTokens + nftFloorTotal, // patrimonio con NFTs a floor (base por defecto)
   });
 });

@@ -7,6 +7,7 @@ import { ApiError, readJson, route } from "@/lib/http";
 import { hoyIso } from "@/lib/periodo";
 import { direccionesPorRed, parseAddresses } from "@/lib/metamask-addresses";
 import { revaluarTokens, type TrackedToken } from "@/lib/metamask";
+import { revaluarNfts } from "@/lib/metamask-nft";
 
 const input = z.object({ cuentaId: z.number().int() });
 
@@ -40,11 +41,7 @@ export const POST = route<unknown>("POST /metamask/sync", async (request) => {
     decimals: t.decimals,
   }));
 
-  if (trackedTokens.length === 0) {
-    throw new ApiError(400, "No hay tokens en la watchlist. Reconfigurala primero.");
-  }
-
-  const holdings = await revaluarTokens(direcciones, trackedTokens);
+  const holdings = trackedTokens.length > 0 ? await revaluarTokens(direcciones, trackedTokens) : [];
   const fecha = hoyIso();
 
   db.transaction((tx) => {
@@ -72,6 +69,9 @@ export const POST = route<unknown>("POST /metamask/sync", async (request) => {
     }
   });
 
+  // Revaluar los NFTs de la watchlist (floor + oferta vía OpenSea) y estamparlos.
+  const nfts = await revaluarNfts(cuentaId);
+
   const total = holdings.reduce((s, h) => s + h.valorUsd, 0);
-  return NextResponse.json({ holdings, total, fecha }, { status: 201 });
+  return NextResponse.json({ holdings, total, nfts, fecha }, { status: 201 });
 });

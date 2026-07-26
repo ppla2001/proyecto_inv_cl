@@ -124,4 +124,9 @@ export const trackedAssets = sqliteTable("tracked_assets", {
   contractAddress: text("contract_address"), // null = token nativo
   tokenId: text("token_id"), // solo NFT (bignum como string)
   decimals: integer("decimals"), // solo token
+  // Última valuación conocida de la colección (solo NFT), estampada al sincronizar
+  // vía OpenSea. floor = piso de venta; oferta = mejor collection offer. Ambos por
+  // NFT. null = todavía sin valuar o sin dato en OpenSea.
+  floorUsd: real("floor_usd"),
+  ofertaUsd: real("oferta_usd"),
 });

@@ -2,6 +2,18 @@
 
 Registro cronológico de las etapas del proyecto, para seguir los cambios y avances. Una entrada por etapa (E*) o cambio transversal relevante. La planificación hacia adelante vive en `PLAN.md`; esto es el historial de lo hecho.
 
+## E7.3 — MetaMask: precios de tokens (DexScreener) + valuación de NFTs (OpenSea)
+
+Cierra los dos huecos de valuación que quedaban: tokens que CoinGecko no cubre y NFTs sin precio.
+
+- **Fallback de precio de tokens (`src/lib/dexscreener.ts`):** los tokens sin precio en CoinGecko (típicamente de Abstract) se completan con DexScreener (gratis, sin key), que toma el precio de pools de DEX. Cuidados de calidad: solo pares donde nuestro token es el `baseToken` (si es el quote, el `priceUsd` es del otro token → valores absurdos), liquidez mínima, y stablecoins forzadas a $1. Se corre como segunda pasada en `holdingsValuados` y `revaluarTokens`. Verificado en la wallet real: gugo, GOONER, KONA, grind, ABSTER, USDC.e, etc. quedan valuados; el spam sin liquidez sigue en “sin precio”.
+- **Valuación de NFTs (`src/lib/opensea.ts`):** por colección, **floor price** (`/collections/{slug}/stats`) y **mejor oferta** de colección (`/offers/collection/{slug}`, parseando órdenes Seaport → precio por item). Ambos a USD (floor en ETH × precio ETH; ofertas en WETH/stables conocidas por red). Los identificadores de red de OpenSea coinciden con los nuestros (ethereum/arbitrum/polygon/abstract), sin mapeo. La oferta puede quedar en “—” en redes cuyo token de pago no reconocemos (el floor no se ve afectado).
+- **Selección de base:** el usuario elige valuar los NFTs a **floor** (default, el más relevante) o a **mejor oferta** desde la vista; el patrimonio total se recalcula. Floor y oferta se estampan en `tracked_assets` (`floor_usd`, `oferta_usd`) al sincronizar, así la vista no re-consulta OpenSea al abrir.
+- **Wiring:** `POST /metamask/sync` y `POST /metamask/tracked` revalúan también los NFTs (`revaluarNfts`); `GET /metamask/current` agrupa NFTs por colección y devuelve totales por base. La vista suma **tokens + NFTs (base elegida)** como patrimonio MetaMask.
+- Tests nuevos de la lógica pura de OpenSea (conversión de floor, parseo de ofertas Seaport, mejor oferta, tokens de pago desconocidos).
+
+Verificado end-to-end con wallets reales. **Pendiente:** historial de movimientos on-chain con costo base manual → PnL (próxima slice); NFT value en el patrimonio del dashboard principal (E12).
+
 ## E7.2 — MetaMask: sync rápido + vista de holdings
 
 Uso diario del MetaMask ya configurado (pedido por Pedro, opción #3A: snapshot al sincronizar; el diario automático real llega en el deploy).

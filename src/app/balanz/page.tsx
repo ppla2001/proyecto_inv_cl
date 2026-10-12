@@ -14,11 +14,18 @@ type Posicion = {
   precioArs: number | null;
   valor: Montos | null;
   pnl: Montos | null;
+  costoSinGastos: Montos;
+  realizadoSinGastos: Montos;
 };
+type Cot = { compra: number; venta: number; fecha: string } | null;
 type PosicionResp = {
   posiciones: Posicion[];
   dolar: { mep: number | null; ccl: number | null; fechaMep: string | null; fechaCcl: string | null };
-  totales: { costo: Montos; valor: Montos; pnl: Montos; realizado: Montos };
+  cotizaciones: { mep: Cot; ccl: Cot; bonos: { mep: number | null; ccl: number | null } };
+  totales: {
+    costo: Montos; costoSinGastos: Montos; valor: Montos;
+    pnl: Montos; pnlSinGastos: Montos; realizado: Montos; realizadoSinGastos: Montos;
+  };
   sinPrecio: string[];
   movimientos: number;
 };
@@ -48,6 +55,42 @@ const fmt = (n: number, u: Unidad) =>
   `${n < 0 ? "-" : ""}${u === "ars" ? "$" : "US$"} ${Math.abs(n).toLocaleString("es-AR", {
     maximumFractionDigits: u === "ars" ? 0 : 2,
   })}`;
+// Con qué cotización de HOY se pasa el valor actual a dólares. El costo siempre
+// usa el dólar del día de cada compra (viene del reporte de Balanz).
+type Fuente = "venta" | "compra" | "promedio" | "bonos" | "manual";
+const LABEL_FUENTE: Record<Fuente, string> = {
+  venta: "Venta (ArgentinaDatos)",
+  compra: "Compra (ArgentinaDatos)",
+  promedio: "Promedio (ArgentinaDatos)",
+  bonos: "Implícito en bonos (AL30)",
+  manual: "Manual (ej. la de Balanz)",
+};
+const FUENTES = Object.keys(LABEL_FUENTE) as Fuente[];
+type Manual = { mep: string; ccl: string };
+const MANUAL_KEY = "balanz.cotizacionManual";
+
+function tasaDe(
+  c: PosicionResp["cotizaciones"] | undefined,
+  dolar: "mep" | "ccl",
+  fuente: Fuente,
+  manual: Manual
+): number | null {
+  if (!c) return null;
+  if (fuente === "manual") {
+    const n = Number(manual[dolar].replace(/\./g, "").replace(",", "."));
+    return n > 0 ? n : null;
+  }
+  if (fuente === "bonos") return c.bonos[dolar];
+  const r = c[dolar];
+  if (!r) return null;
+  if (fuente === "compra") return r.compra;
+  if (fuente === "promedio") return (r.compra + r.venta) / 2;
+  return r.venta;
+}
+
+const fmtTasa = (n: number | null) =>
+  n == null ? "—" : `$ ${n.toLocaleString("es-AR", { maximumFractionDigits: 2 })}`;
+
 const fmtPct = (n: number) => `${n >= 0 ? "+" : ""}${n.toLocaleString("es-AR", { maximumFractionDigits: 1 })}%`;
 const clasePnl = (n: number) => (n >= 0 ? "num-pos" : "num-neg");
 
@@ -55,6 +98,22 @@ export default function BalanzPage() {
   const [accounts, setAccounts] = useState<Account[]>([]);
   const [cuentaId, setCuentaId] = useState("");
   const [unidad, setUnidad] = useState<Unidad>("usdMep");
+  const [fuente, setFuente] = useState<Fuente>("venta");
+  const [sinGastos, setSinGastos] = useState(false);
+  const [manual, setManual] = useState<Manual>({ mep: "", ccl: "" });
+
+  // La cotización manual se recuerda en este navegador (comodidad, no dato).
+  useEffect(() => {
+    try {
+      const raw = localStorage.getItem(MANUAL_KEY);
+      if (raw) setManual(JSON.parse(raw) as Manual);
+    } catch { /* sin storage: queda vacía */ }
+  }, []);
+  function cambiarManual(dolar: "mep" | "ccl", v: string) {
+    const next = { ...manual, [dolar]: v };
+    setManual(next);
+    try { localStorage.setItem(MANUAL_KEY, JSON.stringify(next)); } catch { /* ignore */ }
+  }
   const [pos, setPos] = useState<PosicionResp | null>(null);
 
   const [fileName, setFileName] = useState("");
@@ -175,9 +234,22 @@ export default function BalanzPage() {
 
   const abiertas = (pos?.posiciones ?? []).filter((p) => p.cantidad > 0);
   const t = pos?.totales;
-  const pnlPct = t && t.costo[unidad] > 0 ? (t.pnl[unidad] / t.costo[unidad]) * 100 : null;
-  const tasaUsada = unidad === "usdCcl" ? pos?.dolar.ccl : unidad === "usdMep" ? pos?.dolar.mep : null;
-  const fechaTasa = unidad === "usdCcl" ? pos?.dolar.fechaCcl : pos?.dolar.fechaMep;
+  const cot = pos?.cotizaciones;
+  const tasaMep = tasaDe(cot, "mep", fuente, manual);
+  const tasaCcl = tasaDe(cot, "ccl", fuente, manual);
+  const tasaUsada = unidad === "usdCcl" ? tasaCcl : unidad === "usdMep" ? tasaMep : null;
+
+  // Valor actual en la unidad elegida: pesos tal cual, o pesos / dólar de hoy.
+  const enUnidad = (ars: number): number | null =>
+    unidad === "ars" ? ars : tasaUsada ? ars / tasaUsada : null;
+  const costoDe = (p: { costo: Montos; costoSinGastos: Montos }) => (sinGastos ? p.costoSinGastos : p.costo)[unidad];
+
+  const valorTotal = t ? enUnidad(t.valor.ars) : null;
+  const costoTotal = t ? costoDe(t) : 0;
+  const pnlTotal = valorTotal != null ? valorTotal - costoTotal : null;
+  const pnlPct = pnlTotal != null && costoTotal > 0 ? (pnlTotal / costoTotal) * 100 : null;
+  const realizado = t ? (sinGastos ? t.realizadoSinGastos : t.realizado)[unidad] : 0;
+
   const seleccionadas = candidates.filter((c) => incluir[c.boleto]).length;
 
   return (
@@ -212,6 +284,21 @@ export default function BalanzPage() {
                 ))}
               </select>
             </label>
+            {unidad !== "ars" && (
+              <label style={{ margin: 0 }}>
+                Dólar de hoy{" "}
+                <select value={fuente} onChange={(e) => setFuente(e.target.value as Fuente)}>
+                  {FUENTES.map((f) => <option key={f} value={f}>{LABEL_FUENTE[f]}</option>)}
+                </select>
+              </label>
+            )}
+            <label style={{ margin: 0 }}>
+              Costo{" "}
+              <select value={sinGastos ? "sin" : "con"} onChange={(e) => setSinGastos(e.target.value === "sin")}>
+                <option value="con">Con gastos</option>
+                <option value="sin">Sin gastos</option>
+              </select>
+            </label>
           </div>
           <button type="button" className="btn" onClick={actualizar} disabled={busy || !cuentaId || !pos?.movimientos}>
             {busy ? "Procesando…" : "Actualizar"}
@@ -224,30 +311,49 @@ export default function BalanzPage() {
 
       {pos && pos.movimientos > 0 && t && (
         <>
+          {unidad !== "ars" && fuente === "manual" && (
+            <div className="card form-grid" style={{ maxWidth: 560, marginBottom: "1rem" }}>
+              <p className="muted" style={{ margin: 0 }}>
+                Cargá la cotización que muestra Balanz (en el PDF de posición: “Tipo de cambio para esa fecha”).
+              </p>
+              <div className="toolbar" style={{ gap: "1rem" }}>
+                <label style={{ margin: 0 }}>
+                  MEP <input inputMode="decimal" value={manual.mep} onChange={(e) => cambiarManual("mep", e.target.value)} placeholder="1533,45" style={{ width: 110 }} />
+                </label>
+                <label style={{ margin: 0 }}>
+                  Cable / CCL <input inputMode="decimal" value={manual.ccl} onChange={(e) => cambiarManual("ccl", e.target.value)} placeholder="1601,67" style={{ width: 110 }} />
+                </label>
+              </div>
+            </div>
+          )}
+
           <section className="card-grid" style={{ marginBottom: "1rem" }}>
             <div className="stat-card">
               <div className="label">Valor actual</div>
-              <div className="value">{fmt(t.valor[unidad], unidad)}</div>
-              {tasaUsada != null && fechaTasa && (
-                <div className="hint">
-                  {LABEL_UNIDAD[unidad]} $ {tasaUsada.toLocaleString("es-AR")} · {fmtFechaCorta(fechaTasa)}
-                </div>
-              )}
+              <div className="value">{valorTotal != null ? fmt(valorTotal, unidad) : "—"}</div>
+              <div className="hint">
+                {unidad === "ars"
+                  ? "Precio data912 × cantidad"
+                  : `${LABEL_UNIDAD[unidad]} ${fmtTasa(tasaUsada)} · ${LABEL_FUENTE[fuente]}`}
+              </div>
             </div>
             <div className="stat-card">
               <div className="label">Costo base</div>
-              <div className="value">{fmt(t.costo[unidad], unidad)}</div>
-              <div className="hint">Al dólar del día de cada compra</div>
+              <div className="value">{fmt(costoTotal, unidad)}</div>
+              <div className="hint">
+                {sinGastos ? "Sin gastos" : "Con gastos"}
+                {unidad !== "ars" && " · al dólar del día de cada compra"}
+              </div>
             </div>
-            <div className={`stat-card ${t.pnl[unidad] >= 0 ? "ingreso" : "gasto"}`}>
+            <div className={`stat-card ${pnlTotal != null && pnlTotal < 0 ? "gasto" : "ingreso"}`}>
               <div className="label">Ganancia no realizada</div>
-              <div className="value">{fmt(t.pnl[unidad], unidad)}</div>
+              <div className="value">{pnlTotal != null ? fmt(pnlTotal, unidad) : "—"}</div>
               {pnlPct != null && <div className="hint">{fmtPct(pnlPct)}</div>}
             </div>
-            {t.realizado[unidad] !== 0 && (
-              <div className={`stat-card ${t.realizado[unidad] >= 0 ? "ingreso" : "gasto"}`}>
+            {realizado !== 0 && (
+              <div className={`stat-card ${realizado >= 0 ? "ingreso" : "gasto"}`}>
                 <div className="label">Ganancia realizada</div>
-                <div className="value">{fmt(t.realizado[unidad], unidad)}</div>
+                <div className="value">{fmt(realizado, unidad)}</div>
                 <div className="hint">Por ventas</div>
               </div>
             )}
@@ -272,26 +378,109 @@ export default function BalanzPage() {
                 </tr>
               </thead>
               <tbody>
-                {abiertas.map((p) => (
-                  <tr key={p.activo}>
-                    <td><strong>{p.activo}</strong></td>
-                    <td className="num">{p.cantidad.toLocaleString("es-AR")}</td>
-                    <td className="num">{p.precioArs != null ? p.precioArs.toLocaleString("es-AR") : "—"}</td>
-                    <td className="num">{fmt(p.costo[unidad], unidad)}</td>
-                    <td className="num">{p.valor ? fmt(p.valor[unidad], unidad) : "—"}</td>
-                    <td className={`num ${p.pnl ? clasePnl(p.pnl[unidad]) : ""}`}>
-                      {p.pnl ? fmt(p.pnl[unidad], unidad) : "—"}
-                    </td>
-                    <td className={`num ${p.pnl ? clasePnl(p.pnl[unidad]) : ""}`}>
-                      {p.pnl && p.costo[unidad] > 0 ? fmtPct((p.pnl[unidad] / p.costo[unidad]) * 100) : "—"}
-                    </td>
-                  </tr>
-                ))}
+                {abiertas.map((p) => {
+                  const valor = p.valor ? enUnidad(p.valor.ars) : null;
+                  const costo = costoDe(p);
+                  const res = valor != null ? valor - costo : null;
+                  return (
+                    <tr key={p.activo}>
+                      <td><strong>{p.activo}</strong></td>
+                      <td className="num">{p.cantidad.toLocaleString("es-AR")}</td>
+                      <td className="num">{p.precioArs != null ? p.precioArs.toLocaleString("es-AR") : "—"}</td>
+                      <td className="num">{fmt(costo, unidad)}</td>
+                      <td className="num">{valor != null ? fmt(valor, unidad) : "—"}</td>
+                      <td className={`num ${res != null ? clasePnl(res) : ""}`}>{res != null ? fmt(res, unidad) : "—"}</td>
+                      <td className={`num ${res != null ? clasePnl(res) : ""}`}>
+                        {res != null && costo > 0 ? fmtPct((res / costo) * 100) : "—"}
+                      </td>
+                    </tr>
+                  );
+                })}
               </tbody>
             </table>
           </div>
           <p className="hint">
             Precios: data912 (último operado). El costo usa el MEP/CCL del día de cada compra; el valor, el de hoy.
+          </p>
+
+          <h2 className="section-title">Desglose</h2>
+          <p className="hint">
+            Valor en pesos: <strong>{fmt(t.valor.ars, "ars")}</strong> (instrumentos, sin el efectivo de la cuenta).
+            Cada broker pasa a dólares con su propia cotización, por eso el total en USD cambia según cuál uses.
+          </p>
+          <div className="table-wrap" style={{ marginBottom: "1rem" }}>
+            <table className="data">
+              <thead>
+                <tr>
+                  <th>Dólar de hoy</th>
+                  <th className="num">MEP</th><th className="num">Total USD MEP</th>
+                  <th className="num">CCL</th><th className="num">Total USD CCL</th>
+                </tr>
+              </thead>
+              <tbody>
+                {FUENTES.map((f) => {
+                  const m = tasaDe(cot, "mep", f, manual);
+                  const c = tasaDe(cot, "ccl", f, manual);
+                  const activa = f === fuente;
+                  return (
+                    <tr key={f} style={activa ? { fontWeight: 600 } : undefined}>
+                      <td>
+                        <button type="button" className="btn-link" onClick={() => setFuente(f)}>
+                          {LABEL_FUENTE[f]}
+                        </button>
+                        {activa && <> <span className="badge badge-transfer">en uso</span></>}
+                      </td>
+                      <td className="num">{fmtTasa(m)}</td>
+                      <td className="num">{m ? fmt(t.valor.ars / m, "usdMep") : "—"}</td>
+                      <td className="num">{fmtTasa(c)}</td>
+                      <td className="num">{c ? fmt(t.valor.ars / c, "usdCcl") : "—"}</td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+          </div>
+
+          <div className="table-wrap">
+            <table className="data">
+              <thead>
+                <tr>
+                  <th>Costo</th>
+                  <th className="num">Costo ARS</th><th className="num">Resultado ARS</th>
+                  <th className="num">Costo USD MEP</th><th className="num">Resultado MEP</th>
+                  <th className="num">Costo USD CCL</th><th className="num">Resultado CCL</th>
+                </tr>
+              </thead>
+              <tbody>
+                {([false, true] as const).map((sg) => {
+                  const costo = sg ? t.costoSinGastos : t.costo;
+                  const celda = (c: number, valor: number | null, u: Unidad) => {
+                    if (valor == null) return <td className="num">—</td>;
+                    const r = valor - c;
+                    return (
+                      <td className={`num ${clasePnl(r)}`}>
+                        {fmt(r, u)} <span className="muted">({fmtPct((r / c) * 100)})</span>
+                      </td>
+                    );
+                  };
+                  return (
+                    <tr key={String(sg)} style={sg === sinGastos ? { fontWeight: 600 } : undefined}>
+                      <td>{sg ? "Sin gastos" : "Con gastos"}</td>
+                      <td className="num">{fmt(costo.ars, "ars")}</td>
+                      {celda(costo.ars, t.valor.ars, "ars")}
+                      <td className="num">{fmt(costo.usdMep, "usdMep")}</td>
+                      {celda(costo.usdMep, tasaMep ? t.valor.ars / tasaMep : null, "usdMep")}
+                      <td className="num">{fmt(costo.usdCcl, "usdCcl")}</td>
+                      {celda(costo.usdCcl, tasaCcl ? t.valor.ars / tasaCcl : null, "usdCcl")}
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+          </div>
+          <p className="hint">
+            Gastos totales: {fmt(t.costo.ars - t.costoSinGastos.ars, "ars")}. El resultado en dólares usa el dólar de
+            hoy seleccionado ({LABEL_FUENTE[fuente].toLowerCase()}); el costo, el del día de cada compra.
           </p>
         </>
       )}

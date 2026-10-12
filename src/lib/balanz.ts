@@ -12,6 +12,7 @@ export type MovimientoBroker = {
   activo: string;
   tipo: string; // "compra" | "venta"
   cantidad: number;
+  precioUnitario: number; // en `moneda`, sin gastos
   moneda: string; // "ARS" | "USD"
   valorArs: number | null; // total en ARS (si moneda ARS)
   valorUsd: number; // total en USD a MEP (si moneda USD: el total tal cual)
@@ -24,8 +25,12 @@ export type Montos = { ars: number; usdMep: number; usdCcl: number };
 export type Posicion = {
   activo: string;
   cantidad: number;
-  costo: Montos; // costo base de lo que queda en cartera
-  realizado: Montos; // ganancia/pérdida ya realizada por ventas
+  costo: Montos; // costo base de lo que queda en cartera (con gastos)
+  realizado: Montos; // ganancia/pérdida ya realizada por ventas (con gastos)
+  // Lo mismo sin comisiones/derechos (precio × cantidad), como suele mostrar
+  // el broker su "precio promedio de compra".
+  costoSinGastos: Montos;
+  realizadoSinGastos: Montos;
 };
 
 // Total of one movement in the three units.
@@ -41,6 +46,15 @@ export function montosDe(m: MovimientoBroker): Montos {
   };
 }
 
+// Same, but gross of fees (cantidad × precio), converted with the same rates.
+export function montosBrutosDe(m: MovimientoBroker): Montos {
+  const conGastos = montosDe(m);
+  const total = m.moneda === "USD" ? m.valorUsd : m.valorArs ?? 0;
+  const bruto = m.cantidad * m.precioUnitario;
+  const k = total > 0 ? bruto / total : 1;
+  return { ars: conGastos.ars * k, usdMep: conGastos.usdMep * k, usdCcl: conGastos.usdCcl * k };
+}
+
 const cero = (): Montos => ({ ars: 0, usdMep: 0, usdCcl: 0 });
 const escalar = (a: Montos, k: number): Montos => ({ ars: a.ars * k, usdMep: a.usdMep * k, usdCcl: a.usdCcl * k });
 const sumar = (a: Montos, b: Montos): Montos => ({ ars: a.ars + b.ars, usdMep: a.usdMep + b.usdMep, usdCcl: a.usdCcl + b.usdCcl });
@@ -49,37 +63,59 @@ const restar = (a: Montos, b: Montos): Montos => sumar(a, escalar(b, -1));
 // Tolerance to treat a position as closed (float noise after sells).
 const EPS = 1e-9;
 
-export function calcularPosiciones(movs: MovimientoBroker[]): Posicion[] {
-  const ordenados = [...movs].sort((a, b) => a.fecha.localeCompare(b.fecha));
-  const pos = new Map<string, Posicion>();
+type Acumulado = { cantidad: number; costo: Montos; realizado: Montos };
 
-  for (const m of ordenados) {
-    const p = pos.get(m.activo) ?? { activo: m.activo, cantidad: 0, costo: cero(), realizado: cero() };
-    const total = montosDe(m);
+// Weighted-average cost for one ticker's movements (already sorted), with the
+// given way of valuing each movement (with or without fees).
+function acumular(movs: MovimientoBroker[], montos: (m: MovimientoBroker) => Montos): Acumulado {
+  const a: Acumulado = { cantidad: 0, costo: cero(), realizado: cero() };
+  for (const m of movs) {
+    const total = montos(m);
     if (m.tipo === "compra") {
-      p.cantidad += m.cantidad;
-      p.costo = sumar(p.costo, total);
+      a.cantidad += m.cantidad;
+      a.costo = sumar(a.costo, total);
     } else if (m.tipo === "venta") {
-      if (m.cantidad > p.cantidad + EPS) {
+      if (m.cantidad > a.cantidad + EPS) {
         throw new Error(
-          `Venta de ${m.cantidad} ${m.activo} el ${m.fecha} supera la tenencia (${p.cantidad}). ¿Falta importar alguna compra?`
+          `Venta de ${m.cantidad} ${m.activo} el ${m.fecha} supera la tenencia (${a.cantidad}). ¿Falta importar alguna compra?`
         );
       }
-      const costoVendido = p.cantidad > 0 ? escalar(p.costo, m.cantidad / p.cantidad) : cero();
-      p.realizado = sumar(p.realizado, restar(total, costoVendido));
-      p.costo = restar(p.costo, costoVendido);
-      p.cantidad -= m.cantidad;
-      if (Math.abs(p.cantidad) < EPS) { p.cantidad = 0; p.costo = cero(); }
+      const costoVendido = a.cantidad > 0 ? escalar(a.costo, m.cantidad / a.cantidad) : cero();
+      a.realizado = sumar(a.realizado, restar(total, costoVendido));
+      a.costo = restar(a.costo, costoVendido);
+      a.cantidad -= m.cantidad;
+      if (Math.abs(a.cantidad) < EPS) { a.cantidad = 0; a.costo = cero(); }
     }
-    pos.set(m.activo, p);
   }
-  return [...pos.values()];
+  return a;
+}
+
+export function calcularPosiciones(movs: MovimientoBroker[]): Posicion[] {
+  const porActivo = new Map<string, MovimientoBroker[]>();
+  for (const m of [...movs].sort((a, b) => a.fecha.localeCompare(b.fecha))) {
+    const arr = porActivo.get(m.activo) ?? [];
+    arr.push(m);
+    porActivo.set(m.activo, arr);
+  }
+  return [...porActivo.entries()].map(([activo, ms]) => {
+    const con = acumular(ms, montosDe);
+    const sin = acumular(ms, montosBrutosDe);
+    return {
+      activo,
+      cantidad: con.cantidad,
+      costo: con.costo,
+      realizado: con.realizado,
+      costoSinGastos: sin.costo,
+      realizadoSinGastos: sin.realizado,
+    };
+  });
 }
 
 export type PosicionValuada = Posicion & {
   precioArs: number | null; // último precio en ARS (null = sin cotización)
   valor: Montos | null; // valor actual en las tres unidades
   pnl: Montos | null; // no realizado: valor - costo
+  pnlSinGastos: Montos | null;
 };
 
 // Values each position with an ARS price and today's MEP/CCL.
@@ -90,13 +126,15 @@ export function valuarPosiciones(
 ): PosicionValuada[] {
   return posiciones.map((p) => {
     const precioArs = precios.get(p.activo) ?? null;
-    if (precioArs == null || p.cantidad === 0) return { ...p, precioArs, valor: null, pnl: null };
+    if (precioArs == null || p.cantidad === 0) {
+      return { ...p, precioArs, valor: null, pnl: null, pnlSinGastos: null };
+    }
     const ars = p.cantidad * precioArs;
     const valor: Montos = {
       ars,
       usdMep: dolar.mep ? ars / dolar.mep : 0,
       usdCcl: dolar.ccl ? ars / dolar.ccl : 0,
     };
-    return { ...p, precioArs, valor, pnl: restar(valor, p.costo) };
+    return { ...p, precioArs, valor, pnl: restar(valor, p.costo), pnlSinGastos: restar(valor, p.costoSinGastos) };
   });
 }

@@ -30,3 +30,22 @@ export async function preciosData912(tickers: string[]): Promise<Map<string, num
   }
   return out;
 }
+
+// Bond-implied dollars (how brokers usually derive MEP/CCL): price of AL30 in
+// pesos over AL30D (USD MEP) and AL30C (USD cable). null if a leg is missing.
+export async function dolarImplicitoBonos(bono = "AL30"): Promise<{ mep: number | null; ccl: number | null }> {
+  const res = await fetch(`${BASE}/arg_bonds`, { cache: "no-store" });
+  if (!res.ok) return { mep: null, ccl: null };
+  const filas = (await res.json()) as Fila[];
+  const precio = (sym: string) => {
+    const f = filas.find((x) => x.symbol?.toUpperCase() === sym);
+    return f?.c && f.c > 0 ? f.c : null;
+  };
+  const ars = precio(bono);
+  const mep = precio(`${bono}D`);
+  const ccl = precio(`${bono}C`);
+  return {
+    mep: ars && mep ? ars / mep : null,
+    ccl: ars && ccl ? ars / ccl : null,
+  };
+}

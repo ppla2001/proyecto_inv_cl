@@ -8,7 +8,7 @@ import { ApiError } from "@/lib/http";
 import { hoyIso } from "@/lib/periodo";
 import { type TipoDolar } from "@/lib/dolar";
 import { calcularPosiciones, valuarPosiciones, type Montos, type PosicionValuada } from "@/lib/balanz";
-import { preciosData912 } from "@/lib/data912";
+import { dolarImplicitoBonos, preciosData912 } from "@/lib/data912";
 
 export const FUENTE_BALANZ = "import_balanz";
 export const FUENTE_SNAPSHOT_BALANZ = "balanz_data912";
@@ -32,10 +32,23 @@ export async function ultimaCotizacion(tipo: TipoDolar, fecha = hoyIso()) {
     .get();
 }
 
+type Cotizacion = { compra: number; venta: number; fecha: string } | null;
+
 export type PosicionBalanz = {
   posiciones: PosicionValuada[];
+  // Dólar usado por defecto (venta de ArgentinaDatos).
   dolar: { mep: number | null; ccl: number | null; fechaMep: string | null; fechaCcl: string | null };
-  totales: { costo: Montos; valor: Montos; pnl: Montos; realizado: Montos };
+  // Todas las alternativas, para el desglose y para valuar con otra.
+  cotizaciones: { mep: Cotizacion; ccl: Cotizacion; bonos: { mep: number | null; ccl: number | null } };
+  totales: {
+    costo: Montos;
+    costoSinGastos: Montos;
+    valor: Montos;
+    pnl: Montos;
+    pnlSinGastos: Montos;
+    realizado: Montos;
+    realizadoSinGastos: Montos;
+  };
   sinPrecio: string[];
   movimientos: number;
 };
@@ -60,11 +73,13 @@ export async function posicionBalanz(cuentaId: number): Promise<PosicionBalanz> 
   }
   const abiertas = base.filter((p) => p.cantidad > 0);
 
-  const [precios, mep, ccl] = await Promise.all([
+  const [precios, mep, ccl, bonos] = await Promise.all([
     preciosData912(abiertas.map((p) => p.activo)),
     ultimaCotizacion("mep"),
     ultimaCotizacion("ccl"),
+    dolarImplicitoBonos().catch(() => ({ mep: null, ccl: null })),
   ]);
+  const cot = (r: typeof mep): Cotizacion => (r ? { compra: r.compra, venta: r.venta, fecha: r.fecha } : null);
   // Venta: lo que cuesta comprar dólares hoy, consistente con el resto de la app.
   const dolar = {
     mep: mep?.venta ?? null,
@@ -80,12 +95,16 @@ export async function posicionBalanz(cuentaId: number): Promise<PosicionBalanz> 
   return {
     posiciones,
     dolar,
+    cotizaciones: { mep: cot(mep), ccl: cot(ccl), bonos },
     totales: {
       // Costo y PnL solo de lo valuado, para que el % no mezcle tickers sin precio.
       costo: sumaMontos(valuadas.filter((p) => p.valor).map((p) => p.costo)),
+      costoSinGastos: sumaMontos(valuadas.filter((p) => p.valor).map((p) => p.costoSinGastos)),
       valor: sumaMontos(valuadas.map((p) => p.valor)),
       pnl: sumaMontos(valuadas.map((p) => p.pnl)),
+      pnlSinGastos: sumaMontos(valuadas.map((p) => p.pnlSinGastos)),
       realizado: sumaMontos(posiciones.map((p) => p.realizado)),
+      realizadoSinGastos: sumaMontos(posiciones.map((p) => p.realizadoSinGastos)),
     },
     sinPrecio: valuadas.filter((p) => !p.valor).map((p) => p.activo),
     movimientos: movs.length,

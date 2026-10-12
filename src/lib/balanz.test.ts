@@ -2,7 +2,7 @@ import { describe, it, expect } from "vitest";
 import { calcularPosiciones, valuarPosiciones, type MovimientoBroker } from "@/lib/balanz";
 
 const compra = (fecha: string, activo: string, cantidad: number, ars: number, mep: number, ccl: number): MovimientoBroker => ({
-  fecha, activo, tipo: "compra", cantidad, moneda: "ARS", valorArs: ars, valorUsd: ars / mep, dolarMep: mep, dolarCcl: ccl,
+  fecha, activo, tipo: "compra", cantidad, precioUnitario: ars / cantidad, moneda: "ARS", valorArs: ars, valorUsd: ars / mep, dolarMep: mep, dolarCcl: ccl,
 });
 const venta = (fecha: string, activo: string, cantidad: number, ars: number, mep: number, ccl: number): MovimientoBroker => ({
   ...compra(fecha, activo, cantidad, ars, mep, ccl), tipo: "venta",
@@ -41,6 +41,24 @@ describe("calcularPosiciones", () => {
 
   it("falla si una venta supera la tenencia (falta una compra)", () => {
     expect(() => calcularPosiciones([venta("2026-08-01", "VST", 5, 1, 1, 1)])).toThrow(/supera la tenencia/);
+  });
+});
+
+describe("costo sin gastos", () => {
+  it("usa precio × cantidad (sin comisiones) con las mismas cotizaciones", () => {
+    // 10 a $10.000 + $1.000 de gastos = $101.000 pagados.
+    const m: MovimientoBroker = {
+      fecha: "2026-07-01", activo: "SPY", tipo: "compra", cantidad: 10, precioUnitario: 10_000,
+      moneda: "ARS", valorArs: 101_000, valorUsd: 101, dolarMep: 1000, dolarCcl: 1250,
+    };
+    const [p] = calcularPosiciones([m]);
+    expect(p.costo.ars).toBe(101_000);
+    expect(p.costoSinGastos.ars).toBeCloseTo(100_000, 6);
+    expect(p.costoSinGastos.usdMep).toBeCloseTo(100, 6);
+    expect(p.costoSinGastos.usdCcl).toBeCloseTo(80, 6);
+    const [v] = valuarPosiciones([p], new Map([["SPY", 11_000]]), { mep: 1000, ccl: 1000 });
+    expect(v.pnl?.ars).toBeCloseTo(9_000, 6);
+    expect(v.pnlSinGastos?.ars).toBeCloseTo(10_000, 6);
   });
 });
 

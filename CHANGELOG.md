@@ -13,6 +13,8 @@ Cambio de plan (12-10-2026): Binance pasa a bonus al final; Balanz entra por CSV
 - **"Actualizar":** refresca MEP/CCL desde ArgentinaDatos (`src/lib/cotizaciones-sync.ts`, compartido con el seed — las cotizaciones estaban cortadas en julio) y guarda el snapshot del día (uno por día). `holdings_snapshots.valor_ars` nuevo para poder reconvertir.
 - Migración 0008: `holdings_movements` (+ `valor_ars`, `gastos`, `dolar_mep`, `dolar_ccl`, `external_id` + índice único) y `holdings_snapshots.valor_ars`.
 
+- **Desglose** (pedido tras comparar con la app de Balanz): tabla del total en USD según cada cotización de hoy (ArgentinaDatos venta/compra/promedio, implícita en bonos AL30 vía data912, y **manual** para cargar la de Balanz), y costo/resultado **con y sin gastos** en ARS, USD MEP y USD CCL. Selectores "Dólar de hoy" y "Costo" que aplican a toda la vista. Hallazgo: Balanz usa cotización propia (MEP 1.533,45 / cable 1.601,67), que no coincide con ninguna fuente pública; con la manual el total cierra con el de Balanz salvo el efectivo de la cuenta (~US$ 1,9).
+
 Verificado con el reporte real: 9 compras importadas → 125 SPY, 110 GOOGL, 34 MSFT, 53 NVDA, 2 MU, 62 VST; valor en ARS idéntico al PDF de posición; costo US$ 4.064,56 → valor US$ 4.395,99 (+8,2%) a MEP; reimport = 9 duplicados. **Pendiente:** depósitos/retiros (cuenta corriente), efectivo de la cuenta, FCI.
 
 ## E7.3 — MetaMask: precios de tokens (DexScreener) + valuación de NFTs (OpenSea)

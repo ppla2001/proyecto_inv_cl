@@ -19,6 +19,15 @@ type Candidate = {
   esAhorro: boolean;
   esAhorroSalida: boolean;
   ignorarPorDefecto: boolean;
+  nota?: string;
+};
+
+type Resumen = {
+  formato: "pdf" | "csv";
+  periodo: string | null;
+  saldoInicial: number | null;
+  saldoFinal: number | null;
+  avisos: string[];
 };
 
 type Row = Candidate & {
@@ -40,8 +49,8 @@ export default function ImportMpPage() {
   const [cuentaOrigenId, setCuentaOrigenId] = useState("");
   const [moneda, setMoneda] = useState("ARS");
   const [selfNames, setSelfNames] = useState("PLA PEDRO, Pedro Pla");
-  const [csvText, setCsvText] = useState("");
-  const [fileName, setFileName] = useState("");
+  const [archivo, setArchivo] = useState<File | null>(null);
+  const [resumen, setResumen] = useState<Resumen | null>(null);
   const [rows, setRows] = useState<Row[]>([]);
   const [error, setError] = useState<string | null>(null);
   const [resultado, setResultado] = useState<string | null>(null);
@@ -105,13 +114,14 @@ export default function ImportMpPage() {
     return r.esAhorroSalida ? "Ahorro → corriente" : "Corriente → Ahorro";
   }
 
-  async function handleFile(e: React.ChangeEvent<HTMLInputElement>) {
+  function handleFile(e: React.ChangeEvent<HTMLInputElement>) {
     const file = e.target.files?.[0];
     if (!file) return;
-    setFileName(file.name);
-    setCsvText(await file.text());
+    setArchivo(file);
     setRows([]);
+    setResumen(null);
     setResultado(null);
+    setError(null);
   }
 
   async function parsear() {
@@ -119,17 +129,17 @@ export default function ImportMpPage() {
     setResultado(null);
     setBusy(true);
     try {
-      const { candidates } = await apiFetch<{ candidates: Candidate[] }>(
+      if (!archivo) return;
+      // El archivo va tal cual (PDF de la app del celular o CSV): el server
+      // detecta el formato.
+      const form = new FormData();
+      form.append("file", archivo);
+      form.append("selfNames", selfNames);
+      const { candidates, resumen: r } = await apiFetch<{ candidates: Candidate[]; resumen: Resumen }>(
         "/api/import/mercadopago",
-        {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({
-            csv: csvText,
-            selfNames: selfNames.split(",").map((s) => s.trim()).filter(Boolean),
-          }),
-        }
+        { method: "POST", body: form }
       );
+      setResumen(r);
       const cats = await asegurarCategoriasSugeridas(candidates);
 
       // Memoria: si ya clasificaste la misma descripción en esta cuenta, reusar.
@@ -243,13 +253,14 @@ export default function ImportMpPage() {
     <main className="app-main">
       <h1 className="page-title">Importar Mercado Pago</h1>
       <p className="page-lead">
-        Subí el CSV de &quot;Resumen de cuenta&quot;, revisá la clasificación sugerida y confirmá.
+        Subí el &quot;Resumen de cuenta&quot; (el PDF que baja la app del celular, o el CSV de la web),
+        revisá la clasificación sugerida y confirmá. Reimportar un período no duplica.
         Si elegís la cuenta antes de parsear, se reutilizan categorías de imports anteriores
         con la misma descripción.
       </p>
 
       <div className="steps" aria-label="Pasos">
-        <div className={`step ${csvText || rows.length > 0 ? "active" : ""}`}>
+        <div className={`step ${archivo || rows.length > 0 ? "active" : ""}`}>
           <span className="n">1</span> Cuenta y archivo
         </div>
         <div className={`step ${rows.length > 0 ? "active" : ""}`}>
@@ -290,13 +301,13 @@ export default function ImportMpPage() {
           <input value={selfNames} onChange={(e) => setSelfNames(e.target.value)} />
         </label>
         <label>
-          Archivo CSV
-          <input type="file" accept=".csv" onChange={handleFile} />
-          {fileName && <span className="hint">{fileName}</span>}
+          Archivo (PDF o CSV)
+          <input type="file" accept=".pdf,.csv,application/pdf,text/csv" onChange={handleFile} />
+          {archivo && <span className="hint">{archivo.name}</span>}
         </label>
         <div className="btn-row">
-          <button type="button" className="btn" onClick={parsear} disabled={!csvText || busy}>
-            {busy && rows.length === 0 ? "Parseando…" : "Parsear"}
+          <button type="button" className="btn" onClick={parsear} disabled={!archivo || busy}>
+            {busy && rows.length === 0 ? "Leyendo…" : "Leer archivo"}
           </button>
         </div>
       </div>
@@ -304,8 +315,19 @@ export default function ImportMpPage() {
       {error && <div className="alert alert-error">{error}</div>}
       {resultado && <div className="alert alert-ok">{resultado}</div>}
 
+      {resumen?.avisos.map((a) => (
+        <div key={a} className="alert alert-warn">{a}</div>
+      ))}
+
       {rows.length > 0 && (
         <>
+          {resumen?.formato === "pdf" && resumen.saldoInicial != null && resumen.saldoFinal != null && (
+            <p className="hint">
+              {resumen.periodo ?? "Resumen"} · saldo inicial ${" "}
+              {resumen.saldoInicial.toLocaleString("es-AR")} → saldo final ${" "}
+              {resumen.saldoFinal.toLocaleString("es-AR")} · {rows.length} movimientos (saldos verificados ✓)
+            </p>
+          )}
           <div className="toolbar" style={{ justifyContent: "space-between" }}>
             <p className="muted" style={{ margin: 0 }}>
               <strong>{incluidas}</strong> a importar
@@ -356,6 +378,7 @@ export default function ImportMpPage() {
                         <div className="mov-desc">
                           <span>{r.descripcion}</span>
                           {dir && <span className="mov-meta">{dir}</span>}
+                          {r.nota && <span className="mov-meta">{r.nota}</span>}
                           {dudosa && (
                             <span className="mov-meta" style={{ color: "var(--warn)" }}>
                               Revisar categoría o destino

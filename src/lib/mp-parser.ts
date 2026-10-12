@@ -25,8 +25,19 @@ export type MpCandidate = {
   // corriente ("Dinero retirado"); false si ENTRA a Ahorro ("Dinero
   // reservado"). Define la dirección origen/destino de la transferencia.
   esAhorroSalida: boolean;
-  // true si conviene ignorar por default (plumbing interno de MP).
+  // true si conviene ignorar por default (plumbing interno de MP, o una
+  // operación anulada por su devolución).
   ignorarPorDefecto: boolean;
+  // Aclaración para la pantalla de revisión (ej. por qué se saltea).
+  nota?: string;
+};
+
+// Movimiento crudo, igual para cualquier formato de origen (CSV o PDF).
+export type MovimientoMp = {
+  fecha: string; // yyyy-mm-dd
+  descripcion: string;
+  referenceId: string;
+  montoConSigno: number;
 };
 
 const RENDIMIENTOS_CATEGORIA = "Rendimientos MP";
@@ -147,6 +158,70 @@ export type ParseOptions = {
   selfNames?: string[];
 };
 
+const esDevolucion = (descripcion: string) => /^devoluci[oó]n/i.test(descripcion.trim());
+
+/**
+ * Clasifica movimientos crudos (de cualquier formato) en candidatas.
+ *
+ * IDs: MP repite el ID de la operación original en su devolución (ej.
+ * "Transferencia recibida X" y "Devolución de transferencia enviada X" con el
+ * mismo ID). Como el ID es la clave de dedup, la devolución lleva el sufijo
+ * `-dev` (determinístico: el mismo en CSV y PDF) y cualquier otra repetición
+ * `-2`, `-3`... Una operación y su devolución se anulan: ambas se sugieren
+ * salteadas.
+ */
+export function clasificarMovimientos(
+  movs: MovimientoMp[],
+  opts: ParseOptions = {}
+): MpCandidate[] {
+  const selfNames = opts.selfNames ?? [];
+  const vistos = new Map<string, number>();
+
+  const candidatas: MpCandidate[] = movs.map((m) => {
+    const base = m.referenceId.trim();
+    let referenceId = base;
+    if (esDevolucion(m.descripcion)) {
+      referenceId = `${base}-dev`;
+    } else {
+      const n = (vistos.get(base) ?? 0) + 1;
+      vistos.set(base, n);
+      if (n > 1) referenceId = `${base}-${n}`;
+    }
+    return {
+      fecha: m.fecha,
+      descripcion: m.descripcion.trim(),
+      referenceId,
+      monto: Math.abs(m.montoConSigno),
+      ...clasificar(m.descripcion, m.montoConSigno, selfNames),
+    };
+  });
+
+  // Emparejar cada devolución con su operación original (mismo ID base,
+  // signo opuesto) → ambas se saltean por defecto: netean cero.
+  movs.forEach((m, i) => {
+    if (!esDevolucion(m.descripcion)) return;
+    const base = m.referenceId.trim();
+    const j = movs.findIndex(
+      (o, k) =>
+        k !== i &&
+        !esDevolucion(o.descripcion) &&
+        o.referenceId.trim() === base &&
+        Math.sign(o.montoConSigno) === -Math.sign(m.montoConSigno) &&
+        Math.abs(o.montoConSigno) === Math.abs(m.montoConSigno)
+    );
+    if (j === -1) {
+      candidatas[i].nota = "Devolución de una operación que no está en este resumen.";
+      return;
+    }
+    candidatas[i].ignorarPorDefecto = true;
+    candidatas[i].nota = "Anula la operación original (netean cero).";
+    candidatas[j].ignorarPorDefecto = true;
+    candidatas[j].nota = "Fue devuelta (netea cero con su devolución).";
+  });
+
+  return candidatas;
+}
+
 /**
  * Parsea el CSV de "Resumen de cuenta" de MP y devuelve transacciones
  * candidatas. Ignora el bloque de resumen inicial; procesa solo el detalle
@@ -156,7 +231,6 @@ export function parseMpStatement(
   csv: string,
   opts: ParseOptions = {}
 ): MpCandidate[] {
-  const selfNames = opts.selfNames ?? [];
   const lineas = csv.split(/\r?\n/);
 
   const idxHeader = lineas.findIndex((l) => l.startsWith("RELEASE_DATE"));
@@ -164,24 +238,20 @@ export function parseMpStatement(
     throw new Error("No se encontró la cabecera de movimientos (RELEASE_DATE).");
   }
 
-  const candidatas: MpCandidate[] = [];
+  const movs: MovimientoMp[] = [];
   for (const linea of lineas.slice(idxHeader + 1)) {
     if (linea.trim() === "") continue;
     const cols = linea.split(";");
     if (cols.length < 5) continue;
 
     const [fechaRaw, tipoRaw, referenceId, montoRaw] = cols;
-    const montoConSigno = parseMontoAr(montoRaw);
-    const clasif = clasificar(tipoRaw, montoConSigno, selfNames);
-
-    candidatas.push({
+    movs.push({
       fecha: parseFechaAr(fechaRaw),
-      descripcion: tipoRaw.trim(),
-      referenceId: referenceId.trim(),
-      monto: Math.abs(montoConSigno),
-      ...clasif,
+      descripcion: tipoRaw,
+      referenceId,
+      montoConSigno: parseMontoAr(montoRaw),
     });
   }
 
-  return candidatas;
+  return clasificarMovimientos(movs, opts);
 }

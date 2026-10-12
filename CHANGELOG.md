@@ -2,6 +2,19 @@
 
 Registro cronológico de las etapas del proyecto, para seguir los cambios y avances. Una entrada por etapa (E*) o cambio transversal relevante. La planificación hacia adelante vive en `PLAN.md`; esto es el historial de lo hecho.
 
+## E5.1 — Mercado Pago: import del PDF (app del celular)
+
+La app de MP en el celular exporta el "Resumen de cuenta" solo en PDF; como el uso principal va a ser desde el celular, el importador ahora acepta **PDF o CSV** (mismo flujo de revisión).
+
+- **Extracción de texto** del PDF con `unpdf` (MIT, gratis, server-side; sin OCR: el PDF trae capa de texto). `src/lib/pdf-text.ts`, reutilizable para otros PDFs (ej. Balanz).
+- **Parser del texto** (`src/lib/mp-pdf.ts`, puro + tests): fecha · descripción (puede ocupar varias líneas) · ID · valor · saldo. Solo la sección en pesos; si la de dólares tiene saldo/movimientos, avisa.
+- **Control de integridad:** cada fila debe cumplir saldo anterior + valor = saldo, desde el saldo inicial hasta el final del resumen. Si no cierra, no se importa nada (mensaje con la fila).
+- **Misma clasificación que el CSV** (`clasificarMovimientos` compartido). Verificado: junio por PDF = junio por CSV, 52/52 filas idénticas (mismos IDs → dedup y memoria de categorías funcionan entre formatos).
+- **Bug corregido (también en CSV):** MP repite el ID de la operación en su **devolución**; como el ID es la clave de dedup, la devolución se habría descartado. Ahora lleva `-dev` (y otras repeticiones `-2`, `-3`…), y la operación + su devolución se sugieren salteadas (netean cero), con nota en la revisión.
+- La ruta acepta `multipart/form-data` (archivo tal cual) y mantiene el JSON anterior por compatibilidad.
+
+Verificado con 4 resúmenes reales (jun–sep 2026, 252 movimientos, cadena de saldos OK en todos) y en ancho de celular.
+
 ## E8 — Balanz: import CSV + posición valuada (MEP/CCL)
 
 Cambio de plan (12-10-2026): Binance pasa a bonus al final; Balanz entra por CSV y **se elimina la etapa de OCR** (los exports de Balanz son CSV o PDF con texto).

@@ -18,7 +18,7 @@ Dashboard personal de finanzas e inversiones. PWA para iPhone, uso individual (P
 - **Binance** (bonus, al final): API key de solo lectura (gratis) o export CSV.
 - **MetaMask**: on-chain vía Etherscan API (free tier) para balance actual e historial de tx. El balance histórico en fecha pasada es función paga de Etherscan — se reconstruye con `holdings_snapshots` propios en vez de pagarlo.
 - **Precios cripto**: CoinGecko (gratis, sin key) como fuente primaria; **DexScreener** (gratis, sin key) como fallback para tokens que CoinGecko no cubre (ej. Abstract). **OpenSea** (`OPENSEA_API_KEY` en `.env.local`) para valuar NFTs: floor price + mejor oferta de colección.
-- **Mercado Pago**: **sin API pública para movimientos de cuenta personal** (confirmado 19-07-2026 probando 3 combinaciones de token contra `settlement_report`, ver `PLAN.md`). Se resuelve con importador de exportación manual del panel de usuario (E5), no con integración automática.
+- **Mercado Pago**: **sin API pública para movimientos de cuenta personal** (confirmado 19-07-2026 probando 3 combinaciones de token contra `settlement_report`, ver `PLAN.md`). Se resuelve con importador del "Resumen de cuenta" — **PDF** (lo que exporta la app del celular, uso principal; texto con `unpdf`, sin OCR) o CSV (web) —, no con integración automática.
 - **Credenciales de API** (Etherscan, OpenSea, Binance) siempre en `.env.local`, nunca en la base de datos ni en el repo.
 - Deploy final: **Vercel + Neon** (E12, al final de todo, después de iterar en local).
 

@@ -108,6 +108,8 @@ Sin API disponible (ver veredicto arriba), la ingesta es semi-manual: Pedro desc
 
 **Verificado:** import real de junio 2026 (52 movimientos): 47 importados sin error, 21 rendimientos categorizados, pago de tarjeta como transferencia al pasivo, self-transfers detectados. Las transferencias entre cuentas propias necesitan que exista una `account` para el banco externo como destino (pendiente crear cuando haga falta).
 
+**E5.1 (12-10-2026):** la app del celular exporta el resumen solo en **PDF** → el importador acepta PDF (texto extraído con `unpdf`, sin OCR) o CSV, con la misma clasificación. Control de integridad por cadena de saldos. Las devoluciones repiten el ID de la operación original → se les da ID propio (`-dev`) y ambas se sugieren salteadas.
+
 **Deuda menor:** el import inserta fila por fila (N requests); si el volumen crece, conviene un endpoint de inserción masiva. No bloqueante para uso personal.
 
 ### E6 — Dashboard MVP (local) — reordenado 19-07-2026

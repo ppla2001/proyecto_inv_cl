@@ -6,6 +6,7 @@ import { accounts, holdingsSnapshots, trackedAssets } from "@/db/schema";
 import { ApiError, readJson, route } from "@/lib/http";
 import { hoyIso } from "@/lib/periodo";
 import { serializeAddresses } from "@/lib/metamask-addresses";
+import { revaluarNfts } from "@/lib/metamask-nft";
 
 export const GET = route<unknown>("GET /metamask/tracked", async (request) => {
   const cuentaId = new URL(request.url).searchParams.get("cuentaId");
@@ -124,8 +125,12 @@ export const POST = route<unknown>("POST /metamask/tracked", async (request) => 
     return snaps;
   });
 
+  // Valuar los NFTs recién guardados (floor + oferta vía OpenSea) y estamparlos.
+  // Fuera de la transacción: es una llamada de red que no debe bloquear el guardado.
+  const nftTotales = nfts.length > 0 ? await revaluarNfts(cuentaId) : null;
+
   return NextResponse.json(
-    { trackeados: tokens.length + nfts.length, snapshots: resultado, fecha },
+    { trackeados: tokens.length + nfts.length, snapshots: resultado, nfts: nftTotales, fecha },
     { status: 201 }
   );
 });

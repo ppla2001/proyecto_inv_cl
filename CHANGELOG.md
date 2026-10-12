@@ -2,6 +2,33 @@
 
 Registro cronológico de las etapas del proyecto, para seguir los cambios y avances. Una entrada por etapa (E*) o cambio transversal relevante. La planificación hacia adelante vive en `PLAN.md`; esto es el historial de lo hecho.
 
+## E8 — Balanz: import CSV + posición valuada (MEP/CCL)
+
+Cambio de plan (12-10-2026): Binance pasa a bonus al final; Balanz entra por CSV y **se elimina la etapa de OCR** (los exports de Balanz son CSV o PDF con texto).
+
+- **Importador "Resultados del período"** (`src/lib/balanz-parser.ts`, puro + tests): cada compra/venta → `holdings_movements` con costo total en ARS (precio × cantidad + gastos), y el **MEP y CCL del día de la operación** que trae el propio reporte. Dedup por **nº de boleto** (`external_id`, unique por cuenta). Pantalla de revisión en `/balanz` con duplicados marcados como "ya importado". Soporta BOM y `\r\n` del archivo real.
+- **Posición** (`src/lib/balanz.ts`, puro + tests): costo promedio ponderado; una venta baja el costo proporcional y registra la ganancia realizada; error claro si una venta supera la tenencia (falta importar una compra).
+- **Precios por API gratis:** data912 (`src/lib/data912.ts`, sin key) — verificado: precios idénticos a los del PDF de Balanz.
+- **Toggle USD MEP / USD CCL / ARS:** el costo usa el dólar del día de cada compra; el valor, el de hoy. **CCL** agregado como tipo de dólar en toda la app (también en el selector del dashboard).
+- **"Actualizar":** refresca MEP/CCL desde ArgentinaDatos (`src/lib/cotizaciones-sync.ts`, compartido con el seed — las cotizaciones estaban cortadas en julio) y guarda el snapshot del día (uno por día). `holdings_snapshots.valor_ars` nuevo para poder reconvertir.
+- Migración 0008: `holdings_movements` (+ `valor_ars`, `gastos`, `dolar_mep`, `dolar_ccl`, `external_id` + índice único) y `holdings_snapshots.valor_ars`.
+
+- **Desglose** (pedido tras comparar con la app de Balanz): tabla del total en USD según cada cotización de hoy (ArgentinaDatos venta/compra/promedio, implícita en bonos AL30 vía data912, y **manual** para cargar la de Balanz), y costo/resultado **con y sin gastos** en ARS, USD MEP y USD CCL. Selectores "Dólar de hoy" y "Costo" que aplican a toda la vista. Hallazgo: Balanz usa cotización propia (MEP 1.533,45 / cable 1.601,67), que no coincide con ninguna fuente pública; con la manual el total cierra con el de Balanz salvo el efectivo de la cuenta (~US$ 1,9).
+
+Verificado con el reporte real: 9 compras importadas → 125 SPY, 110 GOOGL, 34 MSFT, 53 NVDA, 2 MU, 62 VST; valor en ARS idéntico al PDF de posición; costo US$ 4.064,56 → valor US$ 4.395,99 (+8,2%) a MEP; reimport = 9 duplicados. **Pendiente:** depósitos/retiros (cuenta corriente), efectivo de la cuenta, FCI.
+
+## E7.3 — MetaMask: precios de tokens (DexScreener) + valuación de NFTs (OpenSea)
+
+Cierra los dos huecos de valuación que quedaban: tokens que CoinGecko no cubre y NFTs sin precio.
+
+- **Fallback de precio de tokens (`src/lib/dexscreener.ts`):** los tokens sin precio en CoinGecko (típicamente de Abstract) se completan con DexScreener (gratis, sin key), que toma el precio de pools de DEX. Cuidados de calidad: solo pares donde nuestro token es el `baseToken` (si es el quote, el `priceUsd` es del otro token → valores absurdos), liquidez mínima, y stablecoins forzadas a $1. Se corre como segunda pasada en `holdingsValuados` y `revaluarTokens`. Verificado en la wallet real: gugo, GOONER, KONA, grind, ABSTER, USDC.e, etc. quedan valuados; el spam sin liquidez sigue en “sin precio”.
+- **Valuación de NFTs (`src/lib/opensea.ts`):** por colección, **floor price** (`/collections/{slug}/stats`) y **mejor oferta** de colección (`/offers/collection/{slug}`, parseando órdenes Seaport → precio por item). Ambos a USD (floor en ETH × precio ETH; ofertas en WETH/stables conocidas por red). Los identificadores de red de OpenSea coinciden con los nuestros (ethereum/arbitrum/polygon/abstract), sin mapeo. La oferta puede quedar en “—” en redes cuyo token de pago no reconocemos (el floor no se ve afectado).
+- **Selección de base:** el usuario elige valuar los NFTs a **floor** (default, el más relevante) o a **mejor oferta** desde la vista; el patrimonio total se recalcula. Floor y oferta se estampan en `tracked_assets` (`floor_usd`, `oferta_usd`) al sincronizar, así la vista no re-consulta OpenSea al abrir.
+- **Wiring:** `POST /metamask/sync` y `POST /metamask/tracked` revalúan también los NFTs (`revaluarNfts`); `GET /metamask/current` agrupa NFTs por colección y devuelve totales por base. La vista suma **tokens + NFTs (base elegida)** como patrimonio MetaMask.
+- Tests nuevos de la lógica pura de OpenSea (conversión de floor, parseo de ofertas Seaport, mejor oferta, tokens de pago desconocidos).
+
+Verificado end-to-end con wallets reales. **Pendiente:** historial de movimientos on-chain con costo base manual → PnL (próxima slice); NFT value en el patrimonio del dashboard principal (E12).
+
 ## E7.2 — MetaMask: sync rápido + vista de holdings
 
 Uso diario del MetaMask ya configurado (pedido por Pedro, opción #3A: snapshot al sincronizar; el diario automático real llega en el deploy).

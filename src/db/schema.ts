@@ -92,24 +92,44 @@ export const holdingsSnapshots = sqliteTable("holdings_snapshots", {
   red: text("red"),
   cantidad: real("cantidad").notNull(),
   valorUsd: real("valor_usd").notNull(),
+  // Valor en ARS (para holdings que cotizan en pesos, ej. CEDEARs): permite
+  // convertir a USD con el dólar que se elija (MEP/CCL) en vez de uno fijo.
+  valorArs: real("valor_ars"),
   fuente: text("fuente").notNull(), // "manual" | "api_binance" | "onchain_metamask" | ...
 });
 
 // Eventos de compra/venta de un activo. Junto con holdings_snapshots permite
 // calcular costo base y por lo tanto rendimiento real (no solo variación de
 // snapshot a snapshot, que se confundiría con "agregaste más plata").
-export const holdingsMovements = sqliteTable("holdings_movements", {
-  id: integer("id").primaryKey({ autoIncrement: true }),
-  cuentaId: integer("cuenta_id").notNull().references(() => accounts.id),
-  fecha: text("fecha").notNull(),
-  activo: text("activo").notNull(),
-  tipo: text("tipo").notNull(), // "compra" | "venta"
-  cantidad: real("cantidad").notNull(),
-  precioUnitario: real("precio_unitario").notNull(),
-  moneda: text("moneda").notNull(), // moneda en la que se pagó/cobró
-  valorUsd: real("valor_usd").notNull(), // normalizado al momento del movimiento
-  fuente: text("fuente").notNull(), // "manual" | "api_binance" | ...
-});
+export const holdingsMovements = sqliteTable(
+  "holdings_movements",
+  {
+    id: integer("id").primaryKey({ autoIncrement: true }),
+    cuentaId: integer("cuenta_id").notNull().references(() => accounts.id),
+    fecha: text("fecha").notNull(),
+    activo: text("activo").notNull(),
+    tipo: text("tipo").notNull(), // "compra" | "venta"
+    cantidad: real("cantidad").notNull(),
+    precioUnitario: real("precio_unitario").notNull(),
+    moneda: text("moneda").notNull(), // moneda en la que se pagó/cobró
+    valorUsd: real("valor_usd").notNull(), // normalizado al momento del movimiento
+    fuente: text("fuente").notNull(), // "manual" | "api_binance" | ...
+    // Total del movimiento en ARS con gastos (compra: pagado; venta: neto
+    // cobrado). null si el movimiento no fue en pesos.
+    valorArs: real("valor_ars"),
+    gastos: real("gastos"), // comisiones + derechos (en `moneda`)
+    // Cotizaciones del día del movimiento, para mostrar el costo en USD con
+    // el dólar que se elija (toggle MEP/CCL) sin depender de otra tabla.
+    dolarMep: real("dolar_mep"),
+    dolarCcl: real("dolar_ccl"),
+    // Id en la fuente (ej. nº de boleto de Balanz). Único por cuenta →
+    // reimportar el mismo reporte no duplica. null en altas manuales.
+    externalId: text("external_id"),
+  },
+  (t) => [
+    uniqueIndex("ux_holdings_movements_cuenta_external").on(t.cuentaId, t.externalId),
+  ]
+);
 
 // Watchlist de activos por cuenta MetaMask: qué tokens/NFTs seguir (curados una
 // sola vez al configurar la cuenta, filtrando el spam). Los syncs solo valúan
@@ -124,4 +144,9 @@ export const trackedAssets = sqliteTable("tracked_assets", {
   contractAddress: text("contract_address"), // null = token nativo
   tokenId: text("token_id"), // solo NFT (bignum como string)
   decimals: integer("decimals"), // solo token
+  // Última valuación conocida de la colección (solo NFT), estampada al sincronizar
+  // vía OpenSea. floor = piso de venta; oferta = mejor collection offer. Ambos por
+  // NFT. null = todavía sin valuar o sin dato en OpenSea.
+  floorUsd: real("floor_usd"),
+  ofertaUsd: real("oferta_usd"),
 });

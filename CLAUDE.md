@@ -12,12 +12,14 @@ Dashboard personal de finanzas e inversiones. PWA para iPhone, uso individual (P
 
 - **Next.js + TypeScript** (App Router, `src/app/`): una sola app con API routes + frontend React (PWA).
 - **Drizzle ORM** sobre **SQLite** en local → **Neon Postgres** al deployar. No usar SQL crudo específico de SQLite.
-- **Ingesta: preferir API oficial sobre OCR/import manual siempre que sea gratis y cubra lo que necesitamos.** Binance y MetaMask sí tienen API gratuita utilizable. Mercado Pago y Balanz no (ver abajo) — quedan como ingesta semi-manual con pantalla de revisión.
+- **Ingesta: preferir API oficial sobre OCR/import manual siempre que sea gratis y cubra lo que necesitamos.** MetaMask se integra por API. Mercado Pago y Balanz no tienen API (ver abajo) — entran por export CSV con pantalla de revisión. Binance queda como bonus para el final.
 - **ArgentinaDatos** (`api.argentinadatos.com`, MIT): dólar MEP/blue/oficial/cripto (`/v1/cotizaciones/dolares/{casa}`) e inflación (`/v1/finanzas/indices/inflacion`, mensual desde 1943). Se almacena MEP desde 2025-01-01; fechas anteriores se resuelven con el endpoint por fecha `/bolsa/{yyyy}/{mm}/{dd}`.
-- **Binance**: API pública para precios + API key de solo lectura (gratis) para balances/historial propio.
+- **Balanz**: CSV "Resultados del período" → `holdings_movements` (costo con MEP/CCL del día, dedup por nº de boleto). Precios de CEDEARs/acciones vía **data912** (`data912.com/live/arg_cedears`, gratis, sin key). Sin OCR.
+- **Binance** (bonus, al final): API key de solo lectura (gratis) o export CSV.
 - **MetaMask**: on-chain vía Etherscan API (free tier) para balance actual e historial de tx. El balance histórico en fecha pasada es función paga de Etherscan — se reconstruye con `holdings_snapshots` propios en vez de pagarlo.
+- **Precios cripto**: CoinGecko (gratis, sin key) como fuente primaria; **DexScreener** (gratis, sin key) como fallback para tokens que CoinGecko no cubre (ej. Abstract). **OpenSea** (`OPENSEA_API_KEY` en `.env.local`) para valuar NFTs: floor price + mejor oferta de colección.
 - **Mercado Pago**: **sin API pública para movimientos de cuenta personal** (confirmado 19-07-2026 probando 3 combinaciones de token contra `settlement_report`, ver `PLAN.md`). Se resuelve con importador de exportación manual del panel de usuario (E5), no con integración automática.
-- **Credenciales de API** (Binance, Etherscan) siempre en `.env.local`, nunca en la base de datos ni en el repo.
+- **Credenciales de API** (Etherscan, OpenSea, Binance) siempre en `.env.local`, nunca en la base de datos ni en el repo.
 - Deploy final: **Vercel + Neon** (E12, al final de todo, después de iterar en local).
 
 ## Principios de diseño
@@ -31,7 +33,7 @@ Dashboard personal de finanzas e inversiones. PWA para iPhone, uso individual (P
 
 ## Plan
 
-Ver `PLAN.md` — etapas E1 a E14. Estado actual: **E1–E6.7b completadas**. Próximo: **E7+**. Home = dashboard (`/`).
+Ver `PLAN.md` — etapas E1 a E14. Estado actual: **E1–E7.3 completadas**, **E8 Balanz en curso** (import CSV + posición valuada hechos; faltan depósitos/retiros). Próximo: conciliador → dashboard completo → deploy. Binance = bonus. Home = dashboard (`/`).
 
 ## Convenciones
 

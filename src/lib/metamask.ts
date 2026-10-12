@@ -14,6 +14,7 @@ import {
   type NftPoseido,
 } from "@/lib/etherscan";
 import { preciosNativos, preciosTokens } from "@/lib/prices";
+import { esStablecoin, preciosDexScreener } from "@/lib/dexscreener";
 
 export type HoldingValuado = {
   red: string;
@@ -56,6 +57,45 @@ export function valuarHoldings(
   });
 }
 
+// Segundo pase de precios: para los tokens que quedaron sin precio (CoinGecko no
+// los cubre, típico de Abstract), aplica stablecoin=$1 y luego DexScreener. Muta
+// los holdings sin precio que sí se puedan valuar.
+async function complementarPrecios(holdings: HoldingValuado[]): Promise<void> {
+  const sinPrecio = holdings.filter((h) => h.sinPrecio && h.contractAddress != null);
+  if (sinPrecio.length === 0) return;
+
+  // Stablecoins → $1 (no dependen de fuente externa).
+  for (const h of sinPrecio) {
+    if (esStablecoin(h.activo)) {
+      h.precioUsd = 1;
+      h.valorUsd = h.cantidad;
+      h.sinPrecio = false;
+    }
+  }
+
+  // El resto: DexScreener, agrupado por red.
+  const porRed = new Map<string, HoldingValuado[]>();
+  for (const h of holdings.filter((x) => x.sinPrecio && x.contractAddress != null)) {
+    const arr = porRed.get(h.red) ?? [];
+    arr.push(h);
+    porRed.set(h.red, arr);
+  }
+  for (const [red, hs] of porRed) {
+    const precios = await preciosDexScreener(
+      red,
+      hs.map((h) => h.contractAddress as string)
+    );
+    for (const h of hs) {
+      const p = precios.get((h.contractAddress as string).toLowerCase());
+      if (p != null) {
+        h.precioUsd = p;
+        h.valorUsd = h.cantidad * p;
+        h.sinPrecio = false;
+      }
+    }
+  }
+}
+
 // ORQUESTACIÓN: para cada red con dirección provista, trae holdings y los valúa.
 // `direccionesPorRed` mapea red -> address (ej. { ethereum: "0x..", abstract: "0x.." }).
 export async function holdingsValuados(
@@ -87,6 +127,7 @@ export async function holdingsValuados(
     resultado.push(...valuarHoldings(chain.red, holdings, precioNativo, preciosTok));
   }
 
+  await complementarPrecios(resultado);
   return resultado;
 }
 
@@ -176,5 +217,6 @@ export async function revaluarTokens(
     resultado.push(...valuarHoldings(red, holdings, precioNativo, preciosTok));
   }
 
+  await complementarPrecios(resultado);
   return resultado;
 }

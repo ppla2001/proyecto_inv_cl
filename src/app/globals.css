@@ -939,3 +939,7 @@ table.data select {
     display: none;
   }
 }
+
+/* Ganancia / pérdida en tablas (Balanz, inversiones) */
+.num-pos { color: var(--ingreso); }
+.num-neg { color: var(--gasto); }

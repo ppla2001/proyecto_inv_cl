@@ -4,7 +4,7 @@
 > Responde tres preguntas: ¿a dónde va la plata?, ¿cómo rinden las inversiones vs. benchmarks?, ¿qué mirar del mercado?
 > **Restricción dura: costo cero absoluto.** Sin APIs pagas de ningún tipo (incluida inferencia de IA).
 
-**Stack:** Node + Next.js (una sola app: API routes + PWA React) · Drizzle ORM sobre SQLite (local) → Neon Postgres (deploy) · OCR local con tesseract.js (Balanz) · ArgentinaDatos para cotizaciones e inflación · Binance API (pública + autenticada de solo lectura) · Etherscan API para MetaMask on-chain · Mercado Pago: **sin API pública para movimientos personales** (confirmado 19-07-2026) → importador de exportación manual del panel.
+**Stack:** Node + Next.js (una sola app: API routes + PWA React) · Drizzle ORM sobre SQLite (local) → Neon Postgres (deploy) · Balanz por CSV + precios data912 · ArgentinaDatos para cotizaciones e inflación · Binance API (pública + autenticada de solo lectura) · Etherscan API para MetaMask on-chain · Mercado Pago: **sin API pública para movimientos personales** (confirmado 19-07-2026) → importador de exportación manual del panel.
 
 **Modo de trabajo:** desarrollo local-first en este repo, todo con Claude en Cowork. El deploy es la anteúltima etapa, después de iterar el dashboard en local. Commits chicos, rama por etapa, PR contra `main`. Historial de cambios en `CHANGELOG.md` (una entrada por etapa); planificación hacia adelante acá.
 
@@ -170,9 +170,19 @@ Primera versión acotada a **holdings actuales valuados** (el lado "¿cómo rind
 
 **Pendiente (E7b):** historial de movimientos on-chain con costo base manual (carga en USD/USDC/USDT/token elegido) → PnL vs. valor actual; snapshot diario automático (llega con el deploy, Vercel Cron).
 
-### E8 — Importadores CSV: Binance y Balanz
-En vez de integrar Binance por API (diferido), y sumado a Balanz que nunca tuvo API, ambos entran por CSV/export con el mismo patrón genérico que MP (parser puro → candidatas → pantalla de revisión → confirm bulk, ya reutilizable desde E6.5). Binance permite exportar historial de operaciones/transacciones en CSV; Balanz según lo que exporte (si es solo PDF/imagen, cae al pipeline OCR de E11).
-**Verificable:** un export real de Binance importado y clasificado (holdings_movements / transactions según corresponda).
+### E8 — Balanz (CSV + precios por API) — en curso, 12-10-2026
+**Decisión (12-10-2026):** Binance sale del camino crítico y pasa a **bonus** (al final, ver E15). Balanz entra por su reporte **CSV "Resultados del período"** (estructurado, sin OCR) y se valúa con **data912** (API comunitaria gratis, sin key; precios verificados idénticos a los del PDF de Balanz). Con esto el OCR deja de ser necesario (E11 eliminada).
+
+Reportes disponibles en Balanz (todos por período): *Resultados del período* (CSV: una fila por compra con ticker, cantidad, precio, gastos, nº de boleto y MEP/CCL/oficial del día), *Posición consolidada* (PDF con capa de texto: tenencias + efectivo), *Cuenta corriente* (PDF: movimientos de efectivo y boletos), *Resumen FCI* (PDF: suscripciones/rescates de fondos).
+
+**Hecho (12-10-2026):**
+- Importador del CSV → `holdings_movements` (costo total con gastos en ARS + MEP y CCL del día de cada compra; dedup por nº de boleto). Pantalla de revisión con duplicados marcados.
+- Posición por ticker a costo promedio (las ventas bajan el costo proporcional y registran la ganancia realizada), valuada con data912 y convertida al MEP/CCL de hoy. **Toggle USD MEP / USD CCL / ARS.**
+- Botón "Actualizar": refresca MEP/CCL desde ArgentinaDatos y guarda el snapshot del día (`holdings_snapshots` con `valor_ars`).
+- CCL agregado como tipo de dólar en toda la app.
+
+**Pendiente:** depósitos/retiros de efectivo (MP → Balanz = `transferencia_interna`) desde la *Cuenta corriente* de un mes con movimientos; saldo en efectivo (ARS/USD) de la cuenta; FCI (hoy en 0). Ventas: el parser las soporta, pero el formato real se valida cuando haya una.
+**Verificable:** el CSV real importado da la misma tenencia y valor que el PDF de posición de Balanz. ✅
 
 ### E9 — Conciliador de transferencias
 Con datos reales entrando desde MP, Binance y MetaMask (E5–E8), aparea egresos/ingresos entre cuentas propias (monto ± tolerancia, ventana temporal) y sugiere clasificarlos como transferencia interna. Nada se autoclasifica sin confirmación.
@@ -182,9 +192,8 @@ Con datos reales entrando desde MP, Binance y MetaMask (E5–E8), aparea egresos
 Pantalla de confirmación de las sugerencias del conciliador (E9) sobre la base de la UI ya construida en E4/E6. Es la red de seguridad de lo que viene en E11 (OCR).
 **Verificable:** flujo completo de confirmación de conciliaciones desde el browser.
 
-### E11 — OCR: Balanz
-Pipeline tesseract.js: screenshot → OCR → parser → transacciones candidatas → pantalla de revisión (nada entra sin validar). Parsers como funciones puras con fixtures de screenshots reales + tests.
-**Verificable:** un screenshot real genera transacciones correctas con ≤1 corrección típica.
+### ~~E11 — OCR: Balanz~~ (eliminada 12-10-2026)
+Balanz exporta CSV y sus PDFs tienen capa de texto: no hace falta OCR. Si en el futuro alguna fuente solo entrega imágenes, se retoma.
 
 ### E12 — Dashboard completo (local)
 Sobre la base del MVP (E6): dashboard general con separación clara **inversiones / ahorros / gastos**, curva de patrimonio neto en el tiempo, rendimiento por plataforma, benchmark vs. SPY e inflación, módulo gastos con flujo mensual por categoría y toggle ARS⇄USD histórico. Se itera en local, en el browser de la Mac, todas las veces que haga falta.
@@ -197,6 +206,9 @@ Migrar SQLite → Neon (cambio de driver/connection string + migraciones). Deplo
 ### E14 (diferida) — Módulo mercado
 Watchlist y top movers vía CoinGecko (preferido sobre CoinMarketCap por mejor free tier, ver tabla de validación). Lo último a propósito: es lo menos diferenciado.
 
+### E15 (bonus) — Binance
+Con la plataforma completa y deployada. Por CSV/export o API key de solo lectura (gratis), mismo patrón de holdings_movements que Balanz.
+
 ---
 
 ## Riesgos y mitigaciones
@@ -205,11 +217,12 @@ Watchlist y top movers vía CoinGecko (preferido sobre CoinMarketCap por mejor f
 - **Etherscan free tier sin balance histórico** → se reconstruye localmente con `holdings_snapshots` propios en vez de pedirlo pago.
 - **Transacciones pre-2025** → lookup puntual por fecha en ArgentinaDatos; pre-2018 no hay MEP → fallback blue/oficial o TC manual.
 - **ArgentinaDatos se cae/discontinúa** → las tablas locales son la fuente de verdad; la API solo alimenta la actualización. Backup del dump.
-- **OCR frágil ante rediseños de apps** → parsers versionados por plantilla + pantalla de revisión siempre presente.
+- **Formato de exports cambia** (Balanz/MP) → el parser valida columnas y falla con mensaje claro; pantalla de revisión siempre presente.
+- **data912 (API comunitaria, sin SLA) se cae** → el último snapshot queda guardado; respaldo: valuar desde el PDF de posición.
 - **Scope creep** → E14 no se toca hasta que E13 tenga uso habitual real.
 - **SQLite→Postgres** → Drizzle desde el día 1 y sin SQL crudo específico de SQLite.
 - **Credenciales de API** → todas en `.env.local`, nunca en la base ni en el repo; en deploy (E13) van como env vars de Vercel.
 
 ## Próximo paso
 
-E7 (o confirmar si se adelanta MetaMask / CSV Binance). UX del dashboard e import (E6.7) ya cubre período flexible, tipo de dólar y memoria de categorías.
+Camino para terminar (12-10-2026): cerrar **E8 Balanz** (depósitos/retiros desde la cuenta corriente) → **E9/E10 conciliador** (MP ↔ Balanz ↔ MetaMask como transferencias internas) → **E12 dashboard completo** (patrimonio total, rendimiento vs. SPY/inflación; incluye movimientos/costo base de MetaMask) → **E13 deploy**. Binance = bonus (E15).

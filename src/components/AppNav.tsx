@@ -7,6 +7,7 @@ const LINKS = [
   { href: "/", label: "Dashboard" },
   { href: "/import/mercadopago", label: "Importar" },
   { href: "/metamask", label: "MetaMask" },
+  { href: "/balanz", label: "Balanz" },
   { href: "/accounts", label: "Cuentas" },
   { href: "/categories", label: "Categorías" },
   { href: "/transactions", label: "Movimientos" },

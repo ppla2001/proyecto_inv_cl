@@ -2,6 +2,19 @@
 
 Registro cronológico de las etapas del proyecto, para seguir los cambios y avances. Una entrada por etapa (E*) o cambio transversal relevante. La planificación hacia adelante vive en `PLAN.md`; esto es el historial de lo hecho.
 
+## E8 — Balanz: import CSV + posición valuada (MEP/CCL)
+
+Cambio de plan (12-10-2026): Binance pasa a bonus al final; Balanz entra por CSV y **se elimina la etapa de OCR** (los exports de Balanz son CSV o PDF con texto).
+
+- **Importador "Resultados del período"** (`src/lib/balanz-parser.ts`, puro + tests): cada compra/venta → `holdings_movements` con costo total en ARS (precio × cantidad + gastos), y el **MEP y CCL del día de la operación** que trae el propio reporte. Dedup por **nº de boleto** (`external_id`, unique por cuenta). Pantalla de revisión en `/balanz` con duplicados marcados como "ya importado". Soporta BOM y `\r\n` del archivo real.
+- **Posición** (`src/lib/balanz.ts`, puro + tests): costo promedio ponderado; una venta baja el costo proporcional y registra la ganancia realizada; error claro si una venta supera la tenencia (falta importar una compra).
+- **Precios por API gratis:** data912 (`src/lib/data912.ts`, sin key) — verificado: precios idénticos a los del PDF de Balanz.
+- **Toggle USD MEP / USD CCL / ARS:** el costo usa el dólar del día de cada compra; el valor, el de hoy. **CCL** agregado como tipo de dólar en toda la app (también en el selector del dashboard).
+- **"Actualizar":** refresca MEP/CCL desde ArgentinaDatos (`src/lib/cotizaciones-sync.ts`, compartido con el seed — las cotizaciones estaban cortadas en julio) y guarda el snapshot del día (uno por día). `holdings_snapshots.valor_ars` nuevo para poder reconvertir.
+- Migración 0008: `holdings_movements` (+ `valor_ars`, `gastos`, `dolar_mep`, `dolar_ccl`, `external_id` + índice único) y `holdings_snapshots.valor_ars`.
+
+Verificado con el reporte real: 9 compras importadas → 125 SPY, 110 GOOGL, 34 MSFT, 53 NVDA, 2 MU, 62 VST; valor en ARS idéntico al PDF de posición; costo US$ 4.064,56 → valor US$ 4.395,99 (+8,2%) a MEP; reimport = 9 duplicados. **Pendiente:** depósitos/retiros (cuenta corriente), efectivo de la cuenta, FCI.
+
 ## E7.3 — MetaMask: precios de tokens (DexScreener) + valuación de NFTs (OpenSea)
 
 Cierra los dos huecos de valuación que quedaban: tokens que CoinGecko no cubre y NFTs sin precio.

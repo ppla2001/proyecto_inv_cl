@@ -57,6 +57,13 @@
       "when": 1785093508254,
       "tag": "0007_typical_mastermind",
       "breakpoints": true
+    },
+    {
+      "idx": 8,
+      "version": "6",
+      "when": 1791820312385,
+      "tag": "0008_open_power_man",
+      "breakpoints": true
     }
   ]
 }

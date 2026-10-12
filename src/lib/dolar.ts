@@ -1,8 +1,9 @@
-export const TIPOS_DOLAR = ["mep", "blue", "oficial", "cripto"] as const;
+export const TIPOS_DOLAR = ["mep", "ccl", "blue", "oficial", "cripto"] as const;
 export type TipoDolar = (typeof TIPOS_DOLAR)[number];
 
 export const LABEL_DOLAR: Record<TipoDolar, string> = {
   mep: "Dólar MEP (bolsa)",
+  ccl: "Dólar CCL (contado con liqui)",
   blue: "Dólar blue",
   oficial: "Dólar oficial",
   cripto: "Dólar cripto",
